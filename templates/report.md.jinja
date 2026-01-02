@@ -1,0 +1,20 @@
+# {{ title }}
+
+## 摘要
+{{ summary }}
+
+## 核心技術拆解
+{% for item in core_points %}
+- {{ item }}
+{% endfor %}
+
+## 系統架構
+{{ architecture }}
+
+## 優點與限制
+{{ pros_cons }}
+
+## 參考來源
+{% for src in sources %}
+- {{ src.title }} — {{ src.url }}
+{% endfor %}
