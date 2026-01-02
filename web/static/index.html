@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monus - Autonomous Research Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #00d4aa;
+            --primary-dark: #00a88a;
+            --secondary: #7c3aed;
+            --bg: #0f172a;
+            --bg-card: #1e293b;
+            --bg-hover: #334155;
+            --text: #f8fafc;
+            --text-secondary: #94a3b8;
+            --border: #334155;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', 'Noto Sans TC', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, var(--bg) 0%, var(--bg-card) 100%);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+
+        .logo-text {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+        }
+
+        /* Main Layout */
+        .main {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 2rem;
+        }
+
+        @media (max-width: 1024px) {
+            .main {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Input Section */
+        .input-section {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 2rem;
+            border: 1px solid var(--border);
+        }
+
+        .input-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .input-box {
+            background: var(--bg);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            transition: border-color 0.2s;
+        }
+
+        .input-box:focus-within {
+            border-color: var(--primary);
+        }
+
+        .input-box textarea {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: var(--text);
+            font-size: 1rem;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+            min-height: 120px;
+        }
+
+        .input-box textarea::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .options {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .option-group {
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .option-label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .option-select {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.75rem;
+            color: var(--text);
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .option-select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .submit-btn {
+            width: 100%;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            border: none;
+            padding: 1rem;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .submit-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 212, 170, 0.3);
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Progress Section */
+        .progress-section {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 2rem;
+            border: 1px solid var(--border);
+            margin-top: 2rem;
+            display: none;
+        }
+
+        .progress-section.active {
+            display: block;
+        }
+
+        .progress-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+        }
+
+        .progress-title {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .progress-percent {
+            font-size: 0.875rem;
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: var(--bg);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%);
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+
+        .phase-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 1rem;
+            background: var(--bg);
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+
+        .phase-icon {
+            font-size: 1.5rem;
+        }
+
+        .phase-text {
+            font-weight: 500;
+        }
+
+        .log-area {
+            background: var(--bg);
+            border-radius: 8px;
+            padding: 1rem;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+        }
+
+        .log-line {
+            padding: 0.25rem 0;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .log-line.action { color: #60a5fa; }
+        .log-line.success { color: var(--success); }
+        .log-line.error { color: var(--error); }
+        .log-line.info { color: var(--text-secondary); }
+
+        /* Sidebar - History */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .history-section {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+        }
+
+        .history-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .history-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .history-item {
+            background: var(--bg);
+            border-radius: 8px;
+            padding: 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+            border: 1px solid transparent;
+        }
+
+        .history-item:hover {
+            background: var(--bg-hover);
+            border-color: var(--border);
+        }
+
+        .history-item-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+        }
+
+        .history-status {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .history-status.completed { background: var(--success); }
+        .history-status.running { background: var(--warning); }
+        .history-status.failed { background: var(--error); }
+
+        .history-time {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .history-goal {
+            font-size: 0.875rem;
+            color: var(--text);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .history-outputs {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .output-badge {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.5rem;
+            background: var(--bg-hover);
+            border-radius: 4px;
+            color: var(--text-secondary);
+        }
+
+        /* Result Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s, visibility 0.3s;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background: var(--bg-card);
+            border-radius: 16px;
+            width: 90%;
+            max-width: 900px;
+            max-height: 90vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .modal-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
+        .modal-body {
+            flex: 1;
+            overflow: auto;
+            padding: 1.5rem;
+        }
+
+        .modal-tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-tab {
+            padding: 0.75rem 1.5rem;
+            background: var(--bg);
+            border: none;
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .modal-tab.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        .preview-frame {
+            width: 100%;
+            height: 500px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: white;
+        }
+
+        .markdown-content {
+            background: var(--bg);
+            padding: 1.5rem;
+            border-radius: 8px;
+            line-height: 1.8;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-secondary);
+        }
+
+        .empty-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        /* Agents Badge */
+        .agents-badge {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .agent-chip {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.75rem;
+            background: var(--bg);
+            border-radius: 20px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .agent-chip.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        /* Animations */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .loading {
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--text-secondary);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">🧠</div>
+                <span class="logo-text">Monus</span>
+            </div>
+            <nav class="nav-links">
+                <a href="#" onclick="showHistory()">History</a>
+                <a href="https://github.com/Jeffrey0117/monus" target="_blank">GitHub</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="main">
+        <div class="content">
+            <section class="input-section">
+                <h2 class="input-title">
+                    <span>🔍</span>
+                    What would you like to research?
+                </h2>
+
+                <div class="input-box">
+                    <textarea
+                        id="goalInput"
+                        placeholder="Enter your research goal... e.g., 'Python asyncio tutorial' or 'Compare React vs Vue vs Angular'"
+                    ></textarea>
+                </div>
+
+                <div class="options">
+                    <div class="option-group">
+                        <div class="option-label">Output Format</div>
+                        <select id="formatSelect" class="option-select">
+                            <option value="web">Web Page</option>
+                            <option value="pdf">PDF Report</option>
+                            <option value="slides">Slides</option>
+                            <option value="all">All Formats</option>
+                        </select>
+                    </div>
+                    <div class="option-group">
+                        <div class="option-label">Theme</div>
+                        <select id="themeSelect" class="option-select">
+                            <option value="default">Default</option>
+                            <option value="dark">Dark</option>
+                            <option value="pro">Professional</option>
+                            <option value="ocean">Ocean</option>
+                            <option value="forest">Forest</option>
+                        </select>
+                    </div>
+                </div>
+
+                <button id="submitBtn" class="submit-btn" onclick="startResearch()">
+                    <span>🚀</span>
+                    Start Research
+                </button>
+
+                <div class="agents-badge">
+                    <div class="agent-chip" id="agent-planner">🧠 Planner</div>
+                    <div class="agent-chip" id="agent-reasoner">💭 Reasoner</div>
+                    <div class="agent-chip" id="agent-evaluator">📊 Evaluator</div>
+                    <div class="agent-chip" id="agent-verifier">✅ Verifier</div>
+                    <div class="agent-chip" id="agent-renderer">🎨 Renderer</div>
+                </div>
+            </section>
+
+            <section class="progress-section" id="progressSection">
+                <div class="progress-header">
+                    <span class="progress-title">Research Progress</span>
+                    <span class="progress-percent" id="progressPercent">0%</span>
+                </div>
+
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                </div>
+
+                <div class="phase-indicator" id="phaseIndicator">
+                    <span class="phase-icon">🔄</span>
+                    <span class="phase-text">Initializing...</span>
+                </div>
+
+                <div class="log-area" id="logArea">
+                    <!-- Logs will appear here -->
+                </div>
+            </section>
+        </div>
+
+        <aside class="sidebar">
+            <section class="history-section">
+                <h3 class="history-title">
+                    <span>📚</span>
+                    Recent Research
+                </h3>
+                <div class="history-list" id="historyList">
+                    <div class="empty-state">
+                        <div class="empty-icon">📭</div>
+                        <p>No research history yet</p>
+                    </div>
+                </div>
+            </section>
+        </aside>
+    </main>
+
+    <!-- Result Modal -->
+    <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3 class="modal-title" id="modalTitle">Research Result</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-tabs" id="modalTabs">
+                    <!-- Tabs will be added dynamically -->
+                </div>
+                <div id="modalContent">
+                    <!-- Content will be added dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let currentTaskId = null;
+
+        // 載入歷史記錄
+        async function loadHistory() {
+            try {
+                const res = await fetch('/api/runs');
+                const data = await res.json();
+                renderHistory(data.runs);
+            } catch (e) {
+                console.error('Failed to load history:', e);
+            }
+        }
+
+        function renderHistory(runs) {
+            const list = document.getElementById('historyList');
+
+            if (!runs || runs.length === 0) {
+                list.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">📭</div>
+                        <p>No research history yet</p>
+                    </div>
+                `;
+                return;
+            }
+
+            list.innerHTML = runs.map(run => `
+                <div class="history-item" onclick="viewRun('${run.id}')">
+                    <div class="history-item-header">
+                        <div class="history-status ${run.status}"></div>
+                        <span class="history-time">${run.id.split('_').slice(0, 2).join(' ')}</span>
+                    </div>
+                    <div class="history-goal">${run.goal}</div>
+                    <div class="history-outputs">
+                        ${run.outputs.web ? '<span class="output-badge">Web</span>' : ''}
+                        ${run.outputs.pdf ? '<span class="output-badge">PDF</span>' : ''}
+                        ${run.outputs.slides ? '<span class="output-badge">Slides</span>' : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 開始研究
+        async function startResearch() {
+            const goal = document.getElementById('goalInput').value.trim();
+            if (!goal) {
+                alert('Please enter a research goal');
+                return;
+            }
+
+            const format = document.getElementById('formatSelect').value;
+            const theme = document.getElementById('themeSelect').value;
+
+            // 顯示進度區
+            document.getElementById('progressSection').classList.add('active');
+            document.getElementById('submitBtn').disabled = true;
+            document.getElementById('logArea').innerHTML = '';
+
+            // 生成任務 ID
+            currentTaskId = Date.now().toString();
+
+            // 連接 WebSocket
+            const wsUrl = `ws://${location.host}/ws/${currentTaskId}`;
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                addLog('info', 'Connected to Monus server');
+                ws.send(JSON.stringify({
+                    goal: goal,
+                    output_format: format,
+                    theme: theme,
+                    model: 'deepseek-chat'
+                }));
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+
+            ws.onerror = (error) => {
+                addLog('error', 'Connection error');
+                console.error('WebSocket error:', error);
+            };
+
+            ws.onclose = () => {
+                document.getElementById('submitBtn').disabled = false;
+            };
+        }
+
+        function handleMessage(data) {
+            const phaseIcons = {
+                'planning': '🧠',
+                'searching': '🔍',
+                'extracting': '📥',
+                'analyzing': '💭',
+                'writing': '✍️',
+                'rendering': '🎨',
+                'verifying': '✅'
+            };
+
+            switch (data.type) {
+                case 'start':
+                    addLog('info', `Starting research: ${data.run_id}`);
+                    break;
+
+                case 'phase':
+                    updatePhase(phaseIcons[data.phase] || '🔄', data.phase);
+                    highlightAgent(data.phase);
+                    break;
+
+                case 'progress':
+                    updateProgress(data.progress);
+                    break;
+
+                case 'step':
+                    addLog(data.status === 'done' ? 'success' : 'action', data.step);
+                    break;
+
+                case 'action':
+                    addLog('action', `${data.tool}: ${data.input}`);
+                    break;
+
+                case 'sources':
+                    addLog('info', `Sources collected: ${data.count}`);
+                    break;
+
+                case 'result':
+                    addLog(data.success ? 'success' : 'error', data.message || (data.success ? 'OK' : 'Failed'));
+                    break;
+
+                case 'complete':
+                    updateProgress(100);
+                    updatePhase('✅', 'Completed');
+                    addLog('success', `Research completed! Run ID: ${data.run_id}`);
+                    loadHistory();
+                    break;
+
+                case 'done':
+                    updateProgress(100);
+                    if (data.result.success) {
+                        setTimeout(() => viewRun(data.result.run_id), 1000);
+                    }
+                    break;
+
+                case 'error':
+                    addLog('error', data.message);
+                    break;
+            }
+        }
+
+        function updateProgress(percent) {
+            document.getElementById('progressFill').style.width = `${percent}%`;
+            document.getElementById('progressPercent').textContent = `${percent}%`;
+        }
+
+        function updatePhase(icon, text) {
+            const indicator = document.getElementById('phaseIndicator');
+            indicator.innerHTML = `
+                <span class="phase-icon">${icon}</span>
+                <span class="phase-text">${text.charAt(0).toUpperCase() + text.slice(1)}...</span>
+            `;
+        }
+
+        function addLog(type, message) {
+            const logArea = document.getElementById('logArea');
+            const line = document.createElement('div');
+            line.className = `log-line ${type}`;
+            line.textContent = `> ${message}`;
+            logArea.appendChild(line);
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+
+        function highlightAgent(phase) {
+            // 重置所有 agent
+            document.querySelectorAll('.agent-chip').forEach(chip => {
+                chip.classList.remove('active');
+            });
+
+            // 高亮當前 agent
+            const agentMap = {
+                'planning': 'agent-planner',
+                'analyzing': 'agent-reasoner',
+                'evaluating': 'agent-evaluator',
+                'verifying': 'agent-verifier',
+                'rendering': 'agent-renderer'
+            };
+
+            const agentId = agentMap[phase];
+            if (agentId) {
+                document.getElementById(agentId)?.classList.add('active');
+            }
+        }
+
+        // 查看研究結果
+        async function viewRun(runId) {
+            try {
+                const res = await fetch(`/api/runs/${runId}`);
+                const data = await res.json();
+                showModal(data);
+            } catch (e) {
+                console.error('Failed to load run:', e);
+            }
+        }
+
+        function showModal(data) {
+            document.getElementById('modalTitle').textContent = data.goal;
+
+            // 建立 tabs
+            const tabs = document.getElementById('modalTabs');
+            const content = document.getElementById('modalContent');
+
+            let tabsHtml = '';
+            let firstTab = '';
+
+            if (data.outputs.web) {
+                tabsHtml += `<button class="modal-tab active" onclick="showTab('web', '${data.outputs.web}')">Web</button>`;
+                firstTab = 'web';
+            }
+            if (data.outputs.slides) {
+                tabsHtml += `<button class="modal-tab" onclick="showTab('slides', '${data.outputs.slides}')">Slides</button>`;
+                if (!firstTab) firstTab = 'slides';
+            }
+            if (data.outputs.pdf) {
+                tabsHtml += `<button class="modal-tab" onclick="showTab('pdf', '${data.outputs.pdf}')">PDF</button>`;
+                if (!firstTab) firstTab = 'pdf';
+            }
+            if (data.report) {
+                tabsHtml += `<button class="modal-tab" onclick="showTab('markdown')">Markdown</button>`;
+            }
+
+            tabs.innerHTML = tabsHtml;
+
+            // 顯示第一個 tab 內容
+            if (firstTab && data.outputs[firstTab]) {
+                content.innerHTML = `<iframe class="preview-frame" src="${data.outputs[firstTab]}"></iframe>`;
+            } else if (data.report) {
+                content.innerHTML = `<div class="markdown-content"><pre>${data.report}</pre></div>`;
+            }
+
+            // Store report for markdown tab
+            window.currentReport = data.report;
+
+            document.getElementById('modalOverlay').classList.add('active');
+        }
+
+        function showTab(type, url) {
+            // 更新 tab 狀態
+            document.querySelectorAll('.modal-tab').forEach(tab => {
+                tab.classList.remove('active');
+                if (tab.textContent.toLowerCase() === type) {
+                    tab.classList.add('active');
+                }
+            });
+
+            const content = document.getElementById('modalContent');
+
+            if (type === 'markdown') {
+                content.innerHTML = `<div class="markdown-content"><pre>${window.currentReport || ''}</pre></div>`;
+            } else {
+                content.innerHTML = `<iframe class="preview-frame" src="${url}"></iframe>`;
+            }
+        }
+
+        function closeModal(event) {
+            if (!event || event.target === document.getElementById('modalOverlay')) {
+                document.getElementById('modalOverlay').classList.remove('active');
+            }
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            loadHistory();
+
+            // Enter 鍵提交
+            document.getElementById('goalInput').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && e.ctrlKey) {
+                    startResearch();
+                }
+            });
+        });
+    </script>
+</body>
+</html>
