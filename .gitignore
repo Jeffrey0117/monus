@@ -42,3 +42,18 @@ build/
 playwright-report/
 test-results/
 nul
+
+# Node.js
+node_modules/
+*.tsbuildinfo
+pnpm-lock.yaml
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Sandbox workspace
+sandbox_workspace/
+
+# Coverage
+coverage/

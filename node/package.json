@@ -1,0 +1,28 @@
+{
+  "name": "monus",
+  "version": "4.0.0",
+  "description": "Autonomous Research & Code Generation Agent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "start": "node packages/server/dist/index.js",
+    "test": "vitest",
+    "lint": "eslint packages/*/src/**/*.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "research",
+    "code-generation",
+    "llm"
+  ],
+  "author": "Jeffrey",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "pnpm@9.0.0"
+}
