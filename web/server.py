@@ -26,6 +26,8 @@ from agent.evaluator import Evaluator
 from agent.verifier import Verifier
 from agent.memory import Memory
 from agent.loop import AgentLoop
+from agent.coder import Coder
+from tools.sandbox import SandboxTool
 
 
 # 全域任務管理
@@ -301,9 +303,13 @@ async def create_task(request: TaskRequest):
     }
 
 
+# 初始化 Sandbox（全域）
+sandbox = SandboxTool()
+
+
 @app.websocket("/ws/{task_id}")
 async def websocket_endpoint(websocket: WebSocket, task_id: str):
-    """WebSocket 連接 - 執行任務並即時推送進度"""
+    """WebSocket 連接 - 智能判斷研究或寫程式"""
     await websocket.accept()
 
     try:
@@ -321,49 +327,404 @@ async def websocket_endpoint(websocket: WebSocket, task_id: str):
         # 建立 WebSocket UI
         ws_ui = WebSocketUI(websocket, task_id)
 
-        # 初始化 Agents
-        memory = Memory(runs_dir="runs")
+        # 初始化 Planner 判斷任務類型
         planner = Planner(model=model)
-        reasoner = Reasoner(model=model)
-        evaluator = Evaluator(model=model)
-        verifier = Verifier(min_sources=5, min_word_count=800)
+        task_classification = planner.classify_task(goal)
 
-        # 建立 AgentLoop
-        agent = AgentLoop(
-            memory=memory,
-            planner=planner,
-            reasoner=reasoner,
-            evaluator=evaluator,
-            verifier=verifier,
-            max_iterations=20,
-            ui=ws_ui
-        )
-
-        # 執行任務
-        result = await agent.run(goal, output_format=output_format, theme=theme)
-
-        # 發送最終結果
         await websocket.send_json({
-            "type": "done",
-            "task_id": task_id,
-            "result": {
-                "success": result.get("success", False),
-                "run_id": result.get("run_id", ""),
-                "outputs": result.get("outputs", {})
-            }
+            "type": "classification",
+            "task_type": task_classification["type"],
+            "template": task_classification.get("template"),
+            "confidence": task_classification.get("confidence", 0.5),
+            "reason": task_classification.get("reason", "")
         })
+
+        # 根據任務類型執行不同流程
+        if task_classification["type"] == "code":
+            # === 程式碼生成模式 ===
+            await run_code_generation(
+                websocket, task_id, goal,
+                task_classification.get("template", "html"),
+                theme
+            )
+        else:
+            # === 研究模式 ===
+            await run_research(
+                websocket, ws_ui, task_id, goal,
+                output_format, theme, model, planner
+            )
 
     except WebSocketDisconnect:
         print(f"WebSocket disconnected: {task_id}")
     except Exception as e:
-        await websocket.send_json({
-            "type": "error",
-            "task_id": task_id,
-            "message": str(e)
-        })
+        import traceback
+        traceback.print_exc()
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "task_id": task_id,
+                "message": str(e)
+            })
+        except:
+            pass
     finally:
         if task_id in active_tasks:
             del active_tasks[task_id]
+
+
+async def run_research(websocket, ws_ui, task_id, goal, output_format, theme, model, planner):
+    """執行研究任務"""
+    memory = Memory(runs_dir="runs")
+    reasoner = Reasoner(model=model)
+    evaluator = Evaluator(model=model)
+    verifier = Verifier(min_sources=5, min_word_count=800)
+
+    agent = AgentLoop(
+        memory=memory,
+        planner=planner,
+        reasoner=reasoner,
+        evaluator=evaluator,
+        verifier=verifier,
+        max_iterations=20,
+        ui=ws_ui
+    )
+
+    result = await agent.run(goal, output_format=output_format, theme=theme)
+
+    await websocket.send_json({
+        "type": "done",
+        "task_id": task_id,
+        "mode": "research",
+        "result": {
+            "success": result.get("success", False),
+            "run_id": result.get("run_id", ""),
+            "outputs": result.get("outputs", {})
+        }
+    })
+
+
+async def run_code_generation(websocket, task_id, goal, template, theme):
+    """執行程式碼生成任務"""
+    coder = Coder()
+
+    await websocket.send_json({"type": "phase", "phase": "planning"})
+    await websocket.send_json({"type": "progress", "progress": 5})
+
+    plan = coder.analyze_task(goal, template)
+    project_name = plan.get("project_name", "monus_project")
+
+    await websocket.send_json({"type": "progress", "progress": 10})
+    await websocket.send_json({
+        "type": "step",
+        "step": f"Creating project: {project_name}",
+        "status": "running"
+    })
+
+    init_result = await sandbox.init_project(project_name, template)
+
+    await websocket.send_json({
+        "type": "project_created",
+        "project_name": project_name,
+        "files": init_result.get("files", [])
+    })
+
+    files_to_create = plan.get("files", [])
+    total_files = len(files_to_create)
+    existing_files = {}
+
+    await websocket.send_json({"type": "phase", "phase": "writing"})
+
+    for i, file_info in enumerate(files_to_create):
+        file_path = file_info.get("path", "")
+        file_desc = file_info.get("description", "")
+
+        if not file_path:
+            continue
+
+        await websocket.send_json({"type": "file_start", "file": file_path})
+
+        progress = 10 + int(((i + 1) / total_files) * 80)
+        await websocket.send_json({"type": "progress", "progress": progress})
+        await websocket.send_json({
+            "type": "step",
+            "step": f"Generating {file_path}",
+            "status": "running"
+        })
+
+        content = ""
+        for chunk in coder.generate_file(
+            goal=goal,
+            file_path=file_path,
+            file_description=file_desc,
+            existing_files=existing_files
+        ):
+            content += chunk
+            await websocket.send_json({
+                "type": "file_chunk",
+                "file": file_path,
+                "chunk": chunk
+            })
+
+        await sandbox.write_file(project_name, file_path, content)
+        existing_files[file_path] = content
+
+        await websocket.send_json({
+            "type": "file_complete",
+            "file": file_path,
+            "content": content
+        })
+
+        await websocket.send_json({
+            "type": "step",
+            "step": f"Generated {file_path}",
+            "status": "done"
+        })
+
+    await websocket.send_json({"type": "progress", "progress": 100})
+    await websocket.send_json({"type": "phase", "phase": "complete"})
+
+    await websocket.send_json({
+        "type": "done",
+        "task_id": task_id,
+        "mode": "code",
+        "result": {
+            "success": True,
+            "project_name": project_name,
+            "preview_url": f"/sandbox/{project_name}/index.html",
+            "files": list(existing_files.keys())
+        }
+    })
+
+
+# ==================== Code Generator (Legacy) ====================
+
+
+@app.get("/code")
+async def code_page():
+    """Code Generator 頁面"""
+    return FileResponse(Path(__file__).parent / "static" / "code.html")
+
+
+@app.websocket("/ws/code")
+async def code_websocket(websocket: WebSocket):
+    """Code Generation WebSocket - 即時生成程式碼"""
+    await websocket.accept()
+
+    coder = Coder()
+    project_name = None
+    goal = ""
+    template = "html"
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get("type", "")
+
+            if msg_type == "start":
+                # 開始新專案
+                goal = data.get("goal", "")
+                template = data.get("template", "html")
+
+                if not goal:
+                    await websocket.send_json({"type": "error", "message": "Goal is required"})
+                    continue
+
+                # 分析任務
+                await websocket.send_json({
+                    "type": "progress",
+                    "percent": 5,
+                    "message": "Analyzing task..."
+                })
+
+                plan = coder.analyze_task(goal, template)
+                project_name = plan.get("project_name", "monus_project")
+
+                # 初始化專案
+                await websocket.send_json({
+                    "type": "progress",
+                    "percent": 10,
+                    "message": "Creating project..."
+                })
+
+                init_result = await sandbox.init_project(project_name, template)
+
+                await websocket.send_json({
+                    "type": "project_created",
+                    "project_name": project_name,
+                    "files": init_result.get("files", [])
+                })
+
+                # 生成每個檔案
+                files_to_create = plan.get("files", [])
+                total_files = len(files_to_create)
+                existing_files = {}
+
+                for i, file_info in enumerate(files_to_create):
+                    file_path = file_info.get("path", "")
+                    file_desc = file_info.get("description", "")
+
+                    if not file_path:
+                        continue
+
+                    # 通知開始生成
+                    await websocket.send_json({
+                        "type": "file_start",
+                        "file": file_path
+                    })
+
+                    progress = 10 + int((i / total_files) * 80)
+                    await websocket.send_json({
+                        "type": "progress",
+                        "percent": progress,
+                        "message": f"Generating {file_path}..."
+                    })
+
+                    # 串流生成檔案
+                    content = ""
+                    for chunk in coder.generate_file(
+                        goal=goal,
+                        file_path=file_path,
+                        file_description=file_desc,
+                        existing_files=existing_files
+                    ):
+                        content += chunk
+                        await websocket.send_json({
+                            "type": "file_chunk",
+                            "file": file_path,
+                            "chunk": chunk
+                        })
+
+                    # 儲存檔案
+                    await sandbox.write_file(project_name, file_path, content)
+                    existing_files[file_path] = content
+
+                    await websocket.send_json({
+                        "type": "file_complete",
+                        "file": file_path,
+                        "content": content
+                    })
+
+                # 完成
+                await websocket.send_json({
+                    "type": "progress",
+                    "percent": 100,
+                    "message": "Complete!"
+                })
+
+                await websocket.send_json({
+                    "type": "complete",
+                    "project_name": project_name
+                })
+
+                # 預覽 URL
+                await websocket.send_json({
+                    "type": "preview_ready",
+                    "url": f"/sandbox/{project_name}/index.html"
+                })
+
+            elif msg_type == "chat":
+                # 對話 / 修改請求
+                message = data.get("message", "")
+
+                if not message:
+                    continue
+
+                # 判斷是修改檔案還是一般對話
+                if project_name and any(kw in message for kw in ["改", "加", "修", "刪", "換", "update", "add", "modify", "change"]):
+                    # 修改現有檔案
+                    # 找出要修改的檔案（簡單邏輯：找最相關的）
+                    files_result = await sandbox.list_files(project_name)
+                    files = files_result.get("files", [])
+
+                    # 預設修改主要檔案
+                    target_file = None
+                    for f in files:
+                        if f.get("type") == "file":
+                            path = f.get("path", "")
+                            if "script" in path or "app" in path or path.endswith(".js") or path.endswith(".jsx"):
+                                target_file = path
+                                break
+                            if path == "index.html":
+                                target_file = path
+
+                    if target_file:
+                        read_result = await sandbox.read_file(project_name, target_file)
+                        current_content = read_result.get("content", "")
+
+                        await websocket.send_json({
+                            "type": "file_start",
+                            "file": target_file
+                        })
+
+                        # 修改檔案
+                        new_content = ""
+                        for chunk in coder.modify_file(
+                            goal=goal,
+                            file_path=target_file,
+                            current_content=current_content,
+                            modification_request=message
+                        ):
+                            new_content += chunk
+                            await websocket.send_json({
+                                "type": "file_chunk",
+                                "file": target_file,
+                                "chunk": chunk
+                            })
+
+                        await sandbox.write_file(project_name, target_file, new_content)
+
+                        await websocket.send_json({
+                            "type": "file_complete",
+                            "file": target_file,
+                            "content": new_content
+                        })
+
+                        await websocket.send_json({
+                            "type": "chat",
+                            "message": f"Done! Updated `{target_file}`"
+                        })
+                    else:
+                        await websocket.send_json({
+                            "type": "chat",
+                            "message": "No file to modify. Try being more specific."
+                        })
+
+                else:
+                    # 一般對話
+                    response = ""
+                    for chunk in coder.chat(message, {"project": project_name, "goal": goal}):
+                        response += chunk
+
+                    await websocket.send_json({
+                        "type": "chat",
+                        "message": response
+                    })
+
+            elif msg_type == "save":
+                # 儲存檔案（從編輯器手動儲存）
+                file_path = data.get("file", "")
+                content = data.get("content", "")
+
+                if project_name and file_path:
+                    await sandbox.write_file(project_name, file_path, content)
+                    await websocket.send_json({
+                        "type": "terminal",
+                        "output": f"Saved: {file_path}"
+                    })
+
+    except WebSocketDisconnect:
+        print("[Code] WebSocket disconnected")
+    except Exception as e:
+        await websocket.send_json({
+            "type": "error",
+            "message": str(e)
+        })
+
+
+# Sandbox 靜態檔案（預覽用）
+sandbox_path = Path(__file__).parent.parent / "sandbox_workspace"
+sandbox_path.mkdir(parents=True, exist_ok=True)
+app.mount("/sandbox", StaticFiles(directory=str(sandbox_path), html=True), name="sandbox")
 
 
 # 靜態前端檔案

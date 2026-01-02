@@ -18,6 +18,102 @@ class Planner:
             base_url="https://api.deepseek.com"
         )
 
+    def classify_task(self, goal: str) -> dict:
+        """
+        判斷任務類型：research（研究）或 code（寫程式）
+
+        返回:
+        {
+            "type": "research" | "code",
+            "template": "html" | "vite-react" | "python" | "node" | null,
+            "confidence": 0.0-1.0,
+            "reason": "判斷理由"
+        }
+        """
+        # 程式碼相關關鍵字
+        code_keywords = [
+            "做一個", "寫一個", "開發", "實作", "建立", "創建",
+            "遊戲", "網站", "app", "應用", "程式", "功能",
+            "make", "build", "create", "develop", "implement",
+            "game", "website", "application", "program"
+        ]
+
+        # 研究相關關鍵字
+        research_keywords = [
+            "研究", "分析", "比較", "什麼是", "介紹", "說明",
+            "教學", "原理", "報告", "彙整", "推薦", "整理",
+            "research", "analyze", "compare", "explain", "tutorial",
+            "overview", "how does", "what is"
+        ]
+
+        goal_lower = goal.lower()
+
+        # 計算匹配分數
+        code_score = sum(1 for kw in code_keywords if kw in goal_lower)
+        research_score = sum(1 for kw in research_keywords if kw in goal_lower)
+
+        # 判斷模板類型
+        template = None
+        if code_score > research_score:
+            if any(kw in goal_lower for kw in ["react", "元件", "component"]):
+                template = "vite-react"
+            elif any(kw in goal_lower for kw in ["python", "爬蟲", "腳本", "script"]):
+                template = "python"
+            elif any(kw in goal_lower for kw in ["node", "後端", "api", "server"]):
+                template = "node"
+            else:
+                template = "html"  # 預設純 HTML
+
+        # 關鍵字匹配不足時，使用 LLM 判斷
+        if code_score == 0 and research_score == 0:
+            return self._llm_classify_task(goal)
+
+        if code_score > research_score:
+            return {
+                "type": "code",
+                "template": template,
+                "confidence": min(1.0, code_score / 3),
+                "reason": f"Detected code-related keywords (score: {code_score} vs {research_score})"
+            }
+        else:
+            return {
+                "type": "research",
+                "template": None,
+                "confidence": min(1.0, research_score / 3),
+                "reason": f"Detected research-related keywords (score: {research_score} vs {code_score})"
+            }
+
+    def _llm_classify_task(self, goal: str) -> dict:
+        """使用 LLM 判斷任務類型"""
+        prompt = f"""分析以下用戶需求，判斷是「研究型任務」還是「程式開發任務」。
+
+用戶需求: {goal}
+
+判斷標準:
+- 研究型(research): 需要搜尋資料、整理報告、比較分析、教學說明
+- 程式開發(code): 需要寫程式碼、做應用、做遊戲、建網站
+
+回覆 JSON 格式（不要 markdown）:
+{{"type": "research 或 code", "template": "html/vite-react/python/node 或 null", "reason": "判斷理由"}}"""
+
+        try:
+            content = self._chat(prompt)
+            if content.startswith("```"):
+                content = content.split("```")[1]
+                if content.startswith("json"):
+                    content = content[4:]
+            result = json.loads(content.strip())
+            result["confidence"] = 0.7
+            return result
+        except:
+            # 預設為研究任務
+            return {
+                "type": "research",
+                "template": None,
+                "confidence": 0.5,
+                "reason": "Default to research (LLM classification failed)"
+            }
+
     def _chat(self, prompt: str) -> str:
         response = self.client.chat.completions.create(
             model=self.model_name,

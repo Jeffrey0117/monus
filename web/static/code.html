@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monus Code - AI Code Generator</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --border: #30363d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-purple: #a371f7;
+            --accent-orange: #d29922;
+            --accent-red: #f85149;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* 主佈局 */
+        .app-container {
+            display: grid;
+            grid-template-columns: 280px 1fr 400px;
+            grid-template-rows: 50px 1fr;
+            height: 100vh;
+        }
+
+        /* 頂部導航 */
+        .navbar {
+            grid-column: 1 / -1;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 16px;
+        }
+
+        .navbar .logo {
+            font-size: 18px;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-purple) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .navbar .project-name {
+            padding: 4px 12px;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .navbar .status {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-green);
+        }
+
+        .status-dot.working {
+            animation: pulse 1s infinite;
+            background: var(--accent-orange);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* 左側面板 - 對話 + 檔案樹 */
+        .left-panel {
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .panel-tab {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .panel-tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+
+        .panel-tab:hover {
+            color: var(--text-primary);
+        }
+
+        /* 對話區 */
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+
+        .message {
+            margin-bottom: 12px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .message.user {
+            background: var(--bg-tertiary);
+            margin-left: 20px;
+        }
+
+        .message.assistant {
+            background: linear-gradient(135deg, rgba(88, 166, 255, 0.1) 0%, rgba(163, 113, 247, 0.1) 100%);
+            border: 1px solid rgba(88, 166, 255, 0.2);
+        }
+
+        .message.system {
+            background: rgba(63, 185, 80, 0.1);
+            border: 1px solid rgba(63, 185, 80, 0.2);
+            font-size: 12px;
+            color: var(--accent-green);
+        }
+
+        .chat-input-container {
+            padding: 12px;
+            border-top: 1px solid var(--border);
+        }
+
+        .chat-input {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 13px;
+            resize: none;
+            outline: none;
+            font-family: inherit;
+        }
+
+        .chat-input:focus {
+            border-color: var(--accent);
+        }
+
+        .chat-input::placeholder {
+            color: var(--text-secondary);
+        }
+
+        /* 檔案樹 */
+        .file-tree-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            display: none;
+        }
+
+        .file-tree-container.active {
+            display: block;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 6px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text-secondary);
+            gap: 8px;
+        }
+
+        .file-item:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .file-item.active {
+            background: rgba(88, 166, 255, 0.15);
+            color: var(--accent);
+        }
+
+        .file-item.dir {
+            color: var(--accent-orange);
+        }
+
+        .file-icon {
+            font-size: 14px;
+        }
+
+        /* 中間 - 編輯器 */
+        .editor-panel {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .editor-tabs {
+            display: flex;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            overflow-x: auto;
+        }
+
+        .editor-tab {
+            padding: 8px 16px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            border-right: 1px solid var(--border);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+
+        .editor-tab.active {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        .editor-tab .close {
+            opacity: 0;
+            font-size: 14px;
+        }
+
+        .editor-tab:hover .close {
+            opacity: 0.5;
+        }
+
+        .editor-tab .close:hover {
+            opacity: 1;
+        }
+
+        #editor-container {
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* 右側 - 預覽 */
+        .preview-panel {
+            background: var(--bg-secondary);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .preview-header {
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .preview-header h3 {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .preview-url {
+            flex: 1;
+            padding: 6px 10px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .preview-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .preview-btn {
+            padding: 6px 12px;
+            background: var(--bg-tertiary);
+            border: none;
+            border-radius: 4px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .preview-btn:hover {
+            background: var(--border);
+            color: var(--text-primary);
+        }
+
+        .preview-frame {
+            flex: 1;
+            background: white;
+            border: none;
+        }
+
+        /* 終端面板 */
+        .terminal-panel {
+            height: 150px;
+            background: var(--bg-primary);
+            border-top: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .terminal-header {
+            padding: 6px 12px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .terminal-output {
+            flex: 1;
+            padding: 8px 12px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+        }
+
+        .terminal-output .error {
+            color: var(--accent-red);
+        }
+
+        .terminal-output .success {
+            color: var(--accent-green);
+        }
+
+        /* 啟動畫面 */
+        .start-screen {
+            position: fixed;
+            inset: 0;
+            background: var(--bg-primary);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+
+        .start-screen.hidden {
+            display: none;
+        }
+
+        .start-logo {
+            font-size: 48px;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-purple) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+
+        .start-subtitle {
+            color: var(--text-secondary);
+            margin-bottom: 40px;
+        }
+
+        .start-input-container {
+            width: 100%;
+            max-width: 600px;
+            padding: 0 20px;
+        }
+
+        .start-input {
+            width: 100%;
+            padding: 16px 20px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            color: var(--text-primary);
+            font-size: 16px;
+            outline: none;
+            font-family: inherit;
+        }
+
+        .start-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
+        }
+
+        .start-input::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .start-templates {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+        }
+
+        .template-btn {
+            padding: 8px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .template-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .template-btn.active {
+            background: rgba(88, 166, 255, 0.1);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .start-hint {
+            margin-top: 20px;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        /* 隱藏/顯示 */
+        .hidden {
+            display: none !important;
+        }
+
+        /* 載入動畫 */
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            padding: 8px 12px;
+        }
+
+        .typing-indicator span {
+            width: 6px;
+            height: 6px;
+            background: var(--accent);
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-indicator span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-indicator span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-4px); }
+        }
+
+        /* 程式碼在訊息中 */
+        .message code {
+            background: var(--bg-tertiary);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+        }
+
+        .message pre {
+            background: var(--bg-tertiary);
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 8px 0;
+        }
+
+        .message pre code {
+            background: none;
+            padding: 0;
+        }
+
+        /* 進度條 */
+        .progress-bar {
+            height: 2px;
+            background: var(--border);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-bar .progress {
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--accent-purple));
+            transition: width 0.3s;
+        }
+
+        /* 滾動條 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <!-- 啟動畫面 -->
+    <div class="start-screen" id="startScreen">
+        <div class="start-logo">Monus Code</div>
+        <div class="start-subtitle">AI-Powered Code Generator</div>
+
+        <div class="start-input-container">
+            <input type="text" class="start-input" id="goalInput"
+                   placeholder="描述你想做的專案... 例如：做一個貪吃蛇遊戲">
+
+            <div class="start-templates">
+                <button class="template-btn active" data-template="html">純 HTML</button>
+                <button class="template-btn" data-template="vite-react">React</button>
+                <button class="template-btn" data-template="python">Python</button>
+                <button class="template-btn" data-template="node">Node.js</button>
+            </div>
+
+            <div class="start-hint">按 Enter 開始生成 ✨</div>
+        </div>
+    </div>
+
+    <!-- 主介面 -->
+    <div class="app-container hidden" id="mainApp">
+        <!-- 導航列 -->
+        <nav class="navbar">
+            <span class="logo">Monus Code</span>
+            <span class="project-name" id="projectName">-</span>
+            <div class="status">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">Ready</span>
+            </div>
+        </nav>
+
+        <!-- 左側面板 -->
+        <div class="left-panel">
+            <div class="panel-tabs">
+                <div class="panel-tab active" data-panel="chat">Chat</div>
+                <div class="panel-tab" data-panel="files">Files</div>
+            </div>
+
+            <!-- 對話區 -->
+            <div class="chat-container active" id="chatPanel">
+                <div class="chat-messages" id="chatMessages"></div>
+                <div class="chat-input-container">
+                    <textarea class="chat-input" id="chatInput"
+                              placeholder="輸入指令... 例如：加入計分系統" rows="2"></textarea>
+                </div>
+            </div>
+
+            <!-- 檔案樹 -->
+            <div class="file-tree-container" id="filesPanel"></div>
+        </div>
+
+        <!-- 編輯器面板 -->
+        <div class="editor-panel">
+            <div class="editor-tabs" id="editorTabs"></div>
+            <div class="progress-bar"><div class="progress" id="progressBar" style="width: 0%"></div></div>
+            <div id="editor-container"></div>
+            <div class="terminal-panel">
+                <div class="terminal-header">
+                    <span>Terminal</span>
+                </div>
+                <div class="terminal-output" id="terminalOutput"></div>
+            </div>
+        </div>
+
+        <!-- 預覽面板 -->
+        <div class="preview-panel">
+            <div class="preview-header">
+                <h3>Preview</h3>
+                <span class="preview-url" id="previewUrl">-</span>
+                <div class="preview-actions">
+                    <button class="preview-btn" id="refreshBtn">Refresh</button>
+                    <button class="preview-btn" id="openBtn">Open</button>
+                </div>
+            </div>
+            <iframe class="preview-frame" id="previewFrame"></iframe>
+        </div>
+    </div>
+
+    <!-- Monaco Editor CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+
+    <script>
+        // 全域狀態
+        const state = {
+            ws: null,
+            projectName: null,
+            template: 'html',
+            files: {},
+            currentFile: null,
+            editor: null,
+            models: {}
+        };
+
+        // DOM 元素
+        const els = {
+            startScreen: document.getElementById('startScreen'),
+            mainApp: document.getElementById('mainApp'),
+            goalInput: document.getElementById('goalInput'),
+            projectName: document.getElementById('projectName'),
+            statusDot: document.getElementById('statusDot'),
+            statusText: document.getElementById('statusText'),
+            chatMessages: document.getElementById('chatMessages'),
+            chatInput: document.getElementById('chatInput'),
+            filesPanel: document.getElementById('filesPanel'),
+            editorTabs: document.getElementById('editorTabs'),
+            progressBar: document.getElementById('progressBar'),
+            terminalOutput: document.getElementById('terminalOutput'),
+            previewUrl: document.getElementById('previewUrl'),
+            previewFrame: document.getElementById('previewFrame')
+        };
+
+        // 初始化 Monaco Editor
+        require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' } });
+
+        require(['vs/editor/editor.main'], function () {
+            // 設定深色主題
+            monaco.editor.defineTheme('monus-dark', {
+                base: 'vs-dark',
+                inherit: true,
+                rules: [],
+                colors: {
+                    'editor.background': '#0d1117',
+                    'editor.foreground': '#e6edf3',
+                    'editorLineNumber.foreground': '#484f58',
+                    'editor.lineHighlightBackground': '#161b22',
+                }
+            });
+
+            state.editor = monaco.editor.create(document.getElementById('editor-container'), {
+                theme: 'monus-dark',
+                fontSize: 14,
+                fontFamily: "'JetBrains Mono', monospace",
+                minimap: { enabled: true },
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                tabSize: 2,
+                wordWrap: 'on'
+            });
+
+            // 監聽編輯變更
+            state.editor.onDidChangeModelContent(() => {
+                if (state.currentFile) {
+                    state.files[state.currentFile] = state.editor.getValue();
+                }
+            });
+        });
+
+        // 模板選擇
+        document.querySelectorAll('.template-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.template-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                state.template = btn.dataset.template;
+            });
+        });
+
+        // 面板切換
+        document.querySelectorAll('.panel-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                const panel = tab.dataset.panel;
+                document.getElementById('chatPanel').classList.toggle('active', panel === 'chat');
+                document.getElementById('filesPanel').classList.toggle('active', panel === 'files');
+            });
+        });
+
+        // 開始專案
+        els.goalInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && els.goalInput.value.trim()) {
+                startProject(els.goalInput.value.trim());
+            }
+        });
+
+        // 聊天輸入
+        els.chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey && els.chatInput.value.trim()) {
+                e.preventDefault();
+                sendMessage(els.chatInput.value.trim());
+                els.chatInput.value = '';
+            }
+        });
+
+        // 重新整理預覽
+        document.getElementById('refreshBtn').addEventListener('click', () => {
+            refreshPreview();
+        });
+
+        // 開啟新視窗
+        document.getElementById('openBtn').addEventListener('click', () => {
+            if (els.previewFrame.src) {
+                window.open(els.previewFrame.src, '_blank');
+            }
+        });
+
+        // 開始專案
+        function startProject(goal) {
+            els.startScreen.classList.add('hidden');
+            els.mainApp.classList.remove('hidden');
+
+            setStatus('working', 'Starting...');
+            addMessage('user', goal);
+            addMessage('system', `Starting ${state.template} project...`);
+
+            // 建立 WebSocket 連接
+            connectWebSocket(goal);
+        }
+
+        // WebSocket 連接
+        function connectWebSocket(goal) {
+            const wsUrl = `ws://${window.location.host}/ws/code`;
+            state.ws = new WebSocket(wsUrl);
+
+            state.ws.onopen = () => {
+                // 發送初始任務
+                state.ws.send(JSON.stringify({
+                    type: 'start',
+                    goal: goal,
+                    template: state.template
+                }));
+            };
+
+            state.ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+
+            state.ws.onerror = (error) => {
+                addMessage('system', 'Connection error. Retrying...');
+                setStatus('error', 'Disconnected');
+            };
+
+            state.ws.onclose = () => {
+                setStatus('idle', 'Disconnected');
+            };
+        }
+
+        // 處理 WebSocket 訊息
+        function handleMessage(data) {
+            switch (data.type) {
+                case 'project_created':
+                    state.projectName = data.project_name;
+                    els.projectName.textContent = data.project_name;
+                    addMessage('system', `Project "${data.project_name}" created`);
+                    updateFileTree(data.files);
+                    break;
+
+                case 'file_start':
+                    setStatus('working', `Generating ${data.file}...`);
+                    addMessage('assistant', `Generating \`${data.file}\`...`);
+                    openFile(data.file, '');
+                    break;
+
+                case 'file_chunk':
+                    // 串流更新編輯器內容
+                    if (state.currentFile === data.file) {
+                        state.files[data.file] = (state.files[data.file] || '') + data.chunk;
+                        state.editor.setValue(state.files[data.file]);
+                        // 滾動到底部
+                        state.editor.revealLine(state.editor.getModel().getLineCount());
+                    }
+                    break;
+
+                case 'file_complete':
+                    state.files[data.file] = data.content;
+                    if (state.currentFile === data.file) {
+                        state.editor.setValue(data.content);
+                    }
+                    addMessage('system', `✓ ${data.file} complete`);
+                    updateFileTree();
+                    break;
+
+                case 'progress':
+                    els.progressBar.style.width = `${data.percent}%`;
+                    setStatus('working', data.message);
+                    break;
+
+                case 'terminal':
+                    appendTerminal(data.output, data.isError);
+                    break;
+
+                case 'preview_ready':
+                    els.previewUrl.textContent = data.url;
+                    els.previewFrame.src = data.url;
+                    break;
+
+                case 'complete':
+                    setStatus('idle', 'Complete');
+                    addMessage('system', '✨ Project generation complete!');
+                    els.progressBar.style.width = '100%';
+                    refreshPreview();
+                    break;
+
+                case 'chat':
+                    addMessage('assistant', data.message);
+                    break;
+
+                case 'error':
+                    setStatus('error', 'Error');
+                    addMessage('system', `Error: ${data.message}`);
+                    appendTerminal(data.message, true);
+                    break;
+            }
+        }
+
+        // 發送訊息
+        function sendMessage(message) {
+            addMessage('user', message);
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({
+                    type: 'chat',
+                    message: message
+                }));
+            }
+        }
+
+        // 更新檔案樹
+        function updateFileTree(files) {
+            if (files) {
+                files.forEach(f => {
+                    if (f.type === 'file' && !state.files[f.path]) {
+                        state.files[f.path] = '';
+                    }
+                });
+            }
+
+            els.filesPanel.innerHTML = Object.keys(state.files).map(path => `
+                <div class="file-item ${state.currentFile === path ? 'active' : ''}"
+                     onclick="openFile('${path}')">
+                    <span class="file-icon">${getFileIcon(path)}</span>
+                    <span>${path}</span>
+                </div>
+            `).join('');
+        }
+
+        // 取得檔案圖示
+        function getFileIcon(path) {
+            const ext = path.split('.').pop();
+            const icons = {
+                'html': '🌐',
+                'css': '🎨',
+                'js': '📜',
+                'jsx': '⚛️',
+                'ts': '📘',
+                'tsx': '⚛️',
+                'py': '🐍',
+                'json': '📋',
+                'md': '📝'
+            };
+            return icons[ext] || '📄';
+        }
+
+        // 開啟檔案
+        function openFile(path, content) {
+            state.currentFile = path;
+
+            if (content !== undefined) {
+                state.files[path] = content;
+            }
+
+            // 更新編輯器
+            const fileContent = state.files[path] || '';
+            const language = getLanguage(path);
+
+            // 建立或取得 model
+            let model = state.models[path];
+            if (!model) {
+                model = monaco.editor.createModel(fileContent, language);
+                state.models[path] = model;
+            } else {
+                model.setValue(fileContent);
+            }
+
+            state.editor.setModel(model);
+
+            // 更新 tabs
+            updateEditorTabs();
+            updateFileTree();
+        }
+
+        // 取得語言
+        function getLanguage(path) {
+            const ext = path.split('.').pop();
+            const langs = {
+                'html': 'html',
+                'css': 'css',
+                'js': 'javascript',
+                'jsx': 'javascript',
+                'ts': 'typescript',
+                'tsx': 'typescript',
+                'py': 'python',
+                'json': 'json',
+                'md': 'markdown'
+            };
+            return langs[ext] || 'plaintext';
+        }
+
+        // 更新編輯器 tabs
+        function updateEditorTabs() {
+            els.editorTabs.innerHTML = Object.keys(state.files).map(path => `
+                <div class="editor-tab ${state.currentFile === path ? 'active' : ''}"
+                     onclick="openFile('${path}')">
+                    <span>${path.split('/').pop()}</span>
+                    <span class="close" onclick="event.stopPropagation(); closeFile('${path}')">×</span>
+                </div>
+            `).join('');
+        }
+
+        // 關閉檔案
+        function closeFile(path) {
+            delete state.files[path];
+            if (state.models[path]) {
+                state.models[path].dispose();
+                delete state.models[path];
+            }
+
+            if (state.currentFile === path) {
+                const remaining = Object.keys(state.files);
+                if (remaining.length > 0) {
+                    openFile(remaining[0]);
+                } else {
+                    state.currentFile = null;
+                    state.editor.setValue('');
+                }
+            }
+
+            updateEditorTabs();
+            updateFileTree();
+        }
+
+        // 新增訊息
+        function addMessage(type, content) {
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            div.innerHTML = formatMessage(content);
+            els.chatMessages.appendChild(div);
+            els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+        }
+
+        // 格式化訊息
+        function formatMessage(content) {
+            // 簡單的 code 標記轉換
+            return content
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                .replace(/\n/g, '<br>');
+        }
+
+        // 設定狀態
+        function setStatus(status, text) {
+            els.statusDot.className = 'status-dot';
+            if (status === 'working') {
+                els.statusDot.classList.add('working');
+            }
+            els.statusText.textContent = text;
+        }
+
+        // 終端輸出
+        function appendTerminal(text, isError = false) {
+            const span = document.createElement('span');
+            span.className = isError ? 'error' : '';
+            span.textContent = text + '\n';
+            els.terminalOutput.appendChild(span);
+            els.terminalOutput.scrollTop = els.terminalOutput.scrollHeight;
+        }
+
+        // 重新整理預覽
+        function refreshPreview() {
+            if (state.projectName) {
+                // 對於純 HTML 專案，直接載入 index.html
+                const url = `/sandbox/${state.projectName}/index.html`;
+                els.previewUrl.textContent = url;
+                els.previewFrame.src = url + '?t=' + Date.now();
+            }
+        }
+
+        // 公開函數給 onclick
+        window.openFile = openFile;
+        window.closeFile = closeFile;
+    </script>
+</body>
+</html>

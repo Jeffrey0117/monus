@@ -567,15 +567,21 @@
         <div class="content">
             <section class="input-section">
                 <h2 class="input-title">
-                    <span>🔍</span>
-                    What would you like to research?
+                    <span>🧠</span>
+                    What would you like me to do?
                 </h2>
 
                 <div class="input-box">
                     <textarea
                         id="goalInput"
-                        placeholder="Enter your research goal... e.g., 'Python asyncio tutorial' or 'Compare React vs Vue vs Angular'"
+                        placeholder="研究或寫程式都可以...&#10;&#10;例如：&#10;• Python asyncio 教學&#10;• 比較 React vs Vue&#10;• 做一個貪吃蛇遊戲&#10;• 寫一個計算機網頁"
                     ></textarea>
+                </div>
+
+                <!-- 任務類型提示 -->
+                <div id="taskTypeHint" style="display:none; margin-bottom: 1rem; padding: 0.75rem; background: var(--bg); border-radius: 8px; font-size: 0.9rem;">
+                    <span id="taskTypeIcon">🔍</span>
+                    <span id="taskTypeText">AI will determine task type...</span>
                 </div>
 
                 <div class="options">
@@ -600,13 +606,14 @@
                     </div>
                 </div>
 
-                <button id="submitBtn" class="submit-btn" onclick="startResearch()">
+                <button id="submitBtn" class="submit-btn" onclick="startTask()">
                     <span>🚀</span>
-                    Start Research
+                    Start
                 </button>
 
                 <div class="agents-badge">
                     <div class="agent-chip" id="agent-planner">🧠 Planner</div>
+                    <div class="agent-chip" id="agent-coder">💻 Coder</div>
                     <div class="agent-chip" id="agent-reasoner">💭 Reasoner</div>
                     <div class="agent-chip" id="agent-evaluator">📊 Evaluator</div>
                     <div class="agent-chip" id="agent-verifier">✅ Verifier</div>
@@ -616,7 +623,7 @@
 
             <section class="progress-section" id="progressSection">
                 <div class="progress-header">
-                    <span class="progress-title">Research Progress</span>
+                    <span class="progress-title" id="progressTitle">Progress</span>
                     <span class="progress-percent" id="progressPercent">0%</span>
                 </div>
 
@@ -713,11 +720,14 @@
             `).join('');
         }
 
-        // 開始研究
-        async function startResearch() {
+        let currentMode = 'research';  // 'research' or 'code'
+        let currentProjectName = null;
+
+        // 開始任務（自動判斷類型）
+        async function startTask() {
             const goal = document.getElementById('goalInput').value.trim();
             if (!goal) {
-                alert('Please enter a research goal');
+                alert('Please enter your goal');
                 return;
             }
 
@@ -769,12 +779,33 @@
                 'analyzing': '💭',
                 'writing': '✍️',
                 'rendering': '🎨',
-                'verifying': '✅'
+                'verifying': '✅',
+                'complete': '✅'
             };
 
             switch (data.type) {
+                case 'classification':
+                    // AI 判斷任務類型
+                    currentMode = data.task_type;
+                    const hint = document.getElementById('taskTypeHint');
+                    hint.style.display = 'block';
+                    if (data.task_type === 'code') {
+                        document.getElementById('taskTypeIcon').textContent = '💻';
+                        document.getElementById('taskTypeText').textContent =
+                            `Code Generation Mode (${data.template || 'html'}) - ${data.reason}`;
+                        document.getElementById('progressTitle').textContent = 'Code Generation Progress';
+                        document.getElementById('agent-coder')?.classList.add('active');
+                    } else {
+                        document.getElementById('taskTypeIcon').textContent = '🔍';
+                        document.getElementById('taskTypeText').textContent =
+                            `Research Mode - ${data.reason}`;
+                        document.getElementById('progressTitle').textContent = 'Research Progress';
+                    }
+                    addLog('info', `Task type: ${data.task_type} (confidence: ${(data.confidence * 100).toFixed(0)}%)`);
+                    break;
+
                 case 'start':
-                    addLog('info', `Starting research: ${data.run_id}`);
+                    addLog('info', `Starting: ${data.run_id}`);
                     break;
 
                 case 'phase':
@@ -802,16 +833,39 @@
                     addLog(data.success ? 'success' : 'error', data.message || (data.success ? 'OK' : 'Failed'));
                     break;
 
+                // === Code Generation specific ===
+                case 'project_created':
+                    currentProjectName = data.project_name;
+                    addLog('success', `Project created: ${data.project_name}`);
+                    break;
+
+                case 'file_start':
+                    addLog('action', `Generating: ${data.file}`);
+                    break;
+
+                case 'file_complete':
+                    addLog('success', `Generated: ${data.file}`);
+                    break;
+
                 case 'complete':
                     updateProgress(100);
                     updatePhase('✅', 'Completed');
-                    addLog('success', `Research completed! Run ID: ${data.run_id}`);
+                    if (data.run_id) {
+                        addLog('success', `Completed! Run ID: ${data.run_id}`);
+                    }
                     loadHistory();
                     break;
 
                 case 'done':
                     updateProgress(100);
-                    if (data.result.success) {
+                    updatePhase('✅', 'Done');
+
+                    if (data.mode === 'code' && data.result.success) {
+                        // 程式碼生成完成 - 顯示預覽
+                        addLog('success', `Project ready: ${data.result.project_name}`);
+                        showCodeResult(data.result);
+                    } else if (data.mode === 'research' && data.result.success) {
+                        // 研究完成 - 顯示結果
                         setTimeout(() => viewRun(data.result.run_id), 1000);
                     }
                     break;
@@ -820,6 +874,27 @@
                     addLog('error', data.message);
                     break;
             }
+        }
+
+        function showCodeResult(result) {
+            // 顯示程式碼生成結果
+            document.getElementById('modalTitle').textContent = result.project_name;
+
+            const tabs = document.getElementById('modalTabs');
+            const content = document.getElementById('modalContent');
+
+            tabs.innerHTML = `
+                <button class="modal-tab active" onclick="showTab('preview', '${result.preview_url}')">Preview</button>
+                <button class="modal-tab" onclick="showTab('files')">Files</button>
+            `;
+
+            content.innerHTML = `<iframe class="preview-frame" src="${result.preview_url}"></iframe>`;
+
+            // 儲存檔案列表
+            window.currentFiles = result.files;
+            window.currentPreviewUrl = result.preview_url;
+
+            document.getElementById('modalOverlay').classList.add('active');
         }
 
         function updateProgress(percent) {
@@ -853,6 +928,7 @@
             // 高亮當前 agent
             const agentMap = {
                 'planning': 'agent-planner',
+                'writing': currentMode === 'code' ? 'agent-coder' : 'agent-reasoner',
                 'analyzing': 'agent-reasoner',
                 'evaluating': 'agent-evaluator',
                 'verifying': 'agent-verifier',
@@ -948,7 +1024,7 @@
             // Enter 鍵提交
             document.getElementById('goalInput').addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' && e.ctrlKey) {
-                    startResearch();
+                    startTask();
                 }
             });
         });
