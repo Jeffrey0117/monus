@@ -9,6 +9,7 @@ from .planner import Planner
 from .reasoner import Reasoner
 from .evaluator import Evaluator
 from .verifier import Verifier
+from .renderer import Renderer
 from .memory import Memory
 
 import sys
@@ -31,7 +32,8 @@ class AgentLoop:
         reasoner: Reasoner,
         evaluator: Evaluator,
         verifier: Verifier,
-        max_iterations: int = 20
+        max_iterations: int = 20,
+        ui = None  # MonusUI 實例（可選）
     ):
         self.memory = memory
         self.planner = planner
@@ -39,6 +41,10 @@ class AgentLoop:
         self.evaluator = evaluator
         self.verifier = verifier
         self.max_iterations = max_iterations
+        self.ui = ui  # UI 介面
+
+        # 初始化 Renderer Agent
+        self.renderer = Renderer()
 
         # 初始化工具
         self.browser = BrowserTool()
@@ -55,6 +61,24 @@ class AgentLoop:
         # 輸出結果
         self.outputs: dict = {}
 
+    def _log(self, message: str, level: str = "info"):
+        """統一的日誌輸出"""
+        if self.ui:
+            # 使用 Rich UI
+            if level == "phase":
+                self.ui.update_phase(message)
+            elif level == "step":
+                self.ui.update_step(message, "running")
+            elif level == "done":
+                self.ui.update_step(message, "done")
+            elif level == "fail":
+                self.ui.update_step(message, "failed")
+            else:
+                pass  # 其他由 UI 方法處理
+        else:
+            # 基本輸出
+            print(message)
+
     async def run(self, goal: str, output_format: str = "pdf", theme: str = "default") -> dict:
         """
         執行主循環
@@ -69,12 +93,16 @@ class AgentLoop:
         self.theme = theme
         # 1. 建立執行記錄
         run_id = self.memory.create_run(goal)
-        print(f"[Monus] Starting run: {run_id}")
-        print(f"[Monus] Goal: {goal}")
+
+        if self.ui:
+            self.ui.start_run(run_id, goal)
+        else:
+            print(f"[Monus] Starting run: {run_id}")
+            print(f"[Monus] Goal: {goal}")
 
         # 2. Planner: 建立初始計畫
         try:
-            print("\n[Planner] Creating initial plan...")
+            self._log("planning", "phase")
             initial_steps = self.planner.create_initial_plan(goal)
             for step in initial_steps:
                 self.memory.add_step(
@@ -82,9 +110,9 @@ class AgentLoop:
                     tool=step["tool"],
                     input_data=step["input"]
                 )
-            print(f"[Planner] Plan created with {len(initial_steps)} steps")
+            self._log(f"Plan created with {len(initial_steps)} steps", "done")
         except Exception as e:
-            print(f"[Planner] Error creating plan: {e}")
+            self._log(f"Error creating plan: {e}", "fail")
             self.memory.set_status("failed")
             return {"success": False, "error": str(e)}
 
@@ -92,14 +120,21 @@ class AgentLoop:
         iteration = 0
         while iteration < self.max_iterations:
             iteration += 1
-            print(f"\n[Monus] === Iteration {iteration}/{self.max_iterations} ===")
+
+            if self.ui:
+                self.ui.update_iteration(iteration, self.max_iterations)
+            else:
+                print(f"\n[Monus] === Iteration {iteration}/{self.max_iterations} ===")
 
             # 檢查是否有足夠來源可以生成報告
             sources = self.memory.get_sources()
 
+            if self.ui:
+                self.ui.update_sources(len(sources))
+
             # 快速模式：更積極地生成報告
             if len(sources) >= 5 and iteration >= 5:
-                print(f"[Monus] Enough sources ({len(sources)}) collected after {iteration} iterations, generating report")
+                self._log("writing", "phase")
                 await self._generate_final_report(goal)
                 break
 
@@ -108,10 +143,14 @@ class AgentLoop:
             action = self.planner.decide(task_state)
 
             if action is None:
-                print("[Planner] No more actions needed")
+                self._log("No more actions needed", "done")
                 break
 
-            print(f"[Planner] Next action: {action['tool']} - {action.get('reason', '')}")
+            # 顯示動作
+            if self.ui:
+                self.ui.show_action(action['tool'], action['input'])
+            else:
+                print(f"[Planner] Next action: {action['tool']} - {action.get('reason', '')}")
 
             # 特殊處理：產生報告
             if action["tool"] == "generate_report":
@@ -145,7 +184,10 @@ class AgentLoop:
                     is_success = False
 
                 evaluation = {"success": is_success, "analysis": "Fast mode", "should_retry": not is_success}
-                print(f"[Fast] Action {'OK' if is_success else 'FAILED'}")
+                if self.ui:
+                    self.ui.show_result(is_success)
+                else:
+                    print(f"[Fast] Action {'OK' if is_success else 'FAILED'}")
 
             # Observe: 根據評估更新狀態
             step_id = action.get("step_id")
@@ -154,7 +196,8 @@ class AgentLoop:
                     self.memory.update_step(step_id, "done", output=observation)
                 else:
                     if evaluation.get("should_retry", False):
-                        print("[Evaluator] Suggesting retry")
+                        if not self.ui:
+                            print("[Evaluator] Suggesting retry")
                     else:
                         self.memory.update_step(step_id, "failed", output=observation)
                         self.memory.add_failed_attempt(f"Step {step_id}: {evaluation.get('analysis', 'Failed')}")
@@ -167,7 +210,8 @@ class AgentLoop:
                     tool=next_action.get("tool", ""),
                     input_data=next_action.get("input", "")
                 )
-                print(f"[Evaluator] Added recovery step: {next_action.get('tool', 'N/A')}")
+                if not self.ui:
+                    print(f"[Evaluator] Added recovery step: {next_action.get('tool', 'N/A')}")
 
             # 處理搜尋結果
             if action["tool"] == "browser.search":
@@ -191,26 +235,31 @@ class AgentLoop:
         if report_path.exists():
             report_content = report_path.read_text(encoding="utf-8")
 
+        self._log("verifying", "phase")
         verification = self.verifier.verify(self.memory.get_state(), report_content)
 
         # Evaluator: 最終評估
         final_eval = self.evaluator.evaluate_task_completion(
             goal, self.memory.get_state(), report_content
         )
-        print(f"\n[Evaluator] Final quality score: {final_eval.get('quality_score', 'N/A')}")
-        if final_eval.get("suggestions"):
-            print(f"[Evaluator] Suggestions: {final_eval.get('suggestions', [])}")
+
+        if not self.ui:
+            print(f"\n[Evaluator] Final quality score: {final_eval.get('quality_score', 'N/A')}")
+            if final_eval.get("suggestions"):
+                print(f"[Evaluator] Suggestions: {final_eval.get('suggestions', [])}")
 
         # 5. 設定最終狀態
         if verification["passed"]:
             self.memory.set_status("completed")
-            print("\n[Monus] Task completed successfully!")
+            if not self.ui:
+                print("\n[Monus] Task completed successfully!")
         else:
             self.memory.set_status("failed")
-            print("\n[Monus] Task completed with verification failures:")
-            for r in verification["results"]:
-                status = "[PASS]" if r["passed"] else "[FAIL]"
-                print(f"  {status} {r['rule']}: {r['message']}")
+            if not self.ui:
+                print("\n[Monus] Task completed with verification failures:")
+                for r in verification["results"]:
+                    status = "[PASS]" if r["passed"] else "[FAIL]"
+                    print(f"  {status} {r['rule']}: {r['message']}")
 
         # 6. 儲存來源
         self.memory.save_sources_json()
@@ -276,7 +325,8 @@ class AgentLoop:
                         input_data=item["url"]
                     )
 
-            print(f"[Monus] Found {len(results)} results for '{keyword}'")
+            if not self.ui:
+                print(f"[Monus] Found {len(results)} results for '{keyword}'")
 
     async def _process_extraction(self, result: dict, goal: str):
         """處理頁面提取結果（快速模式）"""
@@ -284,70 +334,101 @@ class AgentLoop:
             content = result["content"]
             # 快速模式：直接收集內容，跳過 LLM 相關性分析
             self.collected_contents.append(content)
-            print(f"[Fast] Content collected ({len(content)} chars)")
+            if not self.ui:
+                print(f"[Fast] Content collected ({len(content)} chars)")
 
     async def _generate_final_report(self, goal: str):
-        """產生最終報告 + 多格式輸出"""
-        print("\n[Planner] Generating final report...")
+        """產生最終報告 + 多格式輸出（使用 Renderer Agent 智能選擇版面）"""
+        self._log("writing", "phase")
 
         sources = self.memory.get_sources()
 
         # 如果沒有收集到內容，使用來源摘要
         contents_to_use = self.collected_contents.copy()
         if not contents_to_use:
-            print("[Monus] No extracted content, using source snippets...")
             for s in sources[:10]:
                 snippet = s.get("snippet", "")
                 if snippet:
                     contents_to_use.append(f"來源: {s.get('title', 'Unknown')}\n{snippet}")
 
-        # 直接產生報告（跳過 Reasoner 分析以加速）
-        print(f"[Monus] Generating report with {len(sources)} sources and {len(contents_to_use)} content pieces...")
-        report = self.planner.generate_report(goal, sources, contents_to_use)
+        # 使用 Renderer Agent 分析內容類型
+        self._log("Analyzing content type", "step")
+        content_type = self.planner.analyze_content_type(goal, contents_to_use)
+        self._log(f"Content type: {content_type}", "done")
+
+        # 產生報告（使用對應的結構模板）
+        self._log("Generating report content", "step")
+        report = self.planner.generate_report(goal, sources, contents_to_use, content_type)
 
         # 儲存 Markdown
         self.memory.save_report(report)
-        print("[Monus] Markdown report saved")
+        self._log("Markdown saved", "done")
 
         run_path = self.memory.get_run_path()
         title = goal[:50]
 
+        # 使用 Renderer Agent 分析最佳版面配置
+        self._log("Analyzing layout", "step")
+        layout_analysis = self.renderer.analyze_content(report, goal)
+        recommended_layout = layout_analysis.get("recommended_layout", "sidebar-nav")
+        recommended_theme = layout_analysis.get("color_theme", self.theme)
+
+        if not self.ui:
+            print(f"[Renderer] Recommended layout: {recommended_layout}")
+            print(f"[Renderer] Recommended theme: {recommended_theme}")
+            print(f"[Renderer] Reason: {layout_analysis.get('reasoning', 'N/A')}")
+
+        self._log(f"Layout: {recommended_layout}, Theme: {recommended_theme}", "done")
+
         # 根據 output_format 生成對應格式
+        self._log("rendering", "phase")
         fmt = self.output_format
 
         # PDF
         if fmt in ["pdf", "all"]:
-            print("[Renderer] Generating PDF...")
+            self._log("Generating PDF", "step")
             pdf_path = str(run_path / "report.pdf")
             pdf_result = await self.pdf.generate(report, pdf_path, title=title)
             self.outputs["pdf"] = pdf_result
             if pdf_result["success"]:
-                print(f"[Renderer] PDF saved: {pdf_result['path']}")
+                self._log("PDF generated", "done")
             else:
-                print(f"[Renderer] PDF failed: {pdf_result.get('error', 'Unknown')}")
+                self._log(f"PDF failed: {pdf_result.get('error', 'Unknown')}", "fail")
 
         # Slides
         if fmt in ["slides", "all"]:
-            print("[Renderer] Generating Slides...")
+            self._log("Generating Slides", "step")
             slides_md = self._convert_to_slides_md(report)
             slides_path = str(run_path / "slides.html")
-            slides_result = await self.slides.generate(slides_md, slides_path, title=title, theme=self.theme)
+            # 使用 Renderer 推薦的主題
+            slides_result = await self.slides.generate(
+                slides_md, slides_path,
+                title=title,
+                theme=recommended_theme if self.theme == "default" else self.theme
+            )
             self.outputs["slides"] = slides_result
             if slides_result["success"]:
-                print(f"[Renderer] Slides saved: {slides_result['path']} ({slides_result['slides_count']} slides)")
+                self._log(f"Slides generated ({slides_result['slides_count']} slides)", "done")
             else:
-                print(f"[Renderer] Slides failed: {slides_result.get('error', 'Unknown')}")
+                self._log(f"Slides failed: {slides_result.get('error', 'Unknown')}", "fail")
 
-        # Web
+        # Web - 使用 Renderer Agent 的智能版面選擇
         if fmt in ["web", "all"]:
-            print("[Renderer] Generating Web page...")
+            self._log("Generating Web page", "step")
             web_path = str(run_path / "index.html")
-            web_result = await self.web.generate(report, web_path, title=title, style="article")
+            # 使用 Renderer 推薦的版面和主題
+            web_result = await self.web.generate(
+                report, web_path,
+                title=title,
+                style=recommended_layout,  # 使用智能推薦的版面
+                theme=recommended_theme if self.theme == "default" else self.theme,
+                goal=goal
+            )
             self.outputs["web"] = web_result
             if web_result["success"]:
-                print(f"[Renderer] Web saved: {web_result['path']}")
+                self._log(f"Web page generated (layout: {web_result.get('layout', 'N/A')})", "done")
             else:
-                print(f"[Renderer] Web failed: {web_result.get('error', 'Unknown')}")
+                self._log(f"Web failed: {web_result.get('error', 'Unknown')}", "fail")
 
     def _convert_to_slides_md(self, report: str) -> str:
         """將報告轉換為簡報格式 Markdown（用 --- 分隔）"""

@@ -1,17 +1,52 @@
 """
 Web Tool - Markdown 轉單頁網站
-自包含 HTML + CSS，可直接分享
+支援智能版面選擇和多樣化模板
+整合 Renderer Agent 進行內容分析
 """
 import markdown
 from pathlib import Path
+from typing import Optional
+import sys
+
+# 確保可以 import agent 模組
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 class WebTool:
-    def __init__(self):
-        self.styles = ["article", "landing", "docs"]
+    """Web 生成工具 - 支援智能版面選擇"""
 
-    async def generate(self, markdown_content: str, output_path: str,
-                       title: str = "Document", style: str = "article") -> dict:
+    # 基礎樣式
+    STYLES = {
+        "article": "sidebar-nav",      # 文章 → 側邊導航
+        "landing": "landing",          # 產品頁 → Landing
+        "docs": "docs",                # 文件 → 技術文件
+        "tutorial": "step-by-step",    # 教學 → 步驟式
+        "comparison": "table-centric", # 比較 → 表格中心
+        "cards": "cards",              # 卡片 → 卡片網格
+    }
+
+    def __init__(self):
+        self.renderer = None  # 延遲載入 Renderer
+
+    def _get_renderer(self):
+        """延遲載入 Renderer Agent"""
+        if self.renderer is None:
+            try:
+                from agent.renderer import Renderer
+                self.renderer = Renderer()
+            except Exception:
+                self.renderer = None
+        return self.renderer
+
+    async def generate(
+        self,
+        markdown_content: str,
+        output_path: str,
+        title: str = "Document",
+        style: str = "auto",
+        theme: str = "default",
+        goal: str = ""
+    ) -> dict:
         """
         將 Markdown 轉換為精美的單頁網站
 
@@ -19,20 +54,46 @@ class WebTool:
             markdown_content: Markdown 內容
             output_path: 輸出路徑 (.html)
             title: 頁面標題
-            style: 樣式 (article/landing/docs)
+            style: 樣式 (auto/article/landing/docs/tutorial/comparison/cards)
+            theme: 色彩主題 (default/dark/ocean/forest/sunset/minimal/pro)
+            goal: 原始任務目標（用於內容分析）
 
         Returns:
-            {success: bool, path: str, error?: str}
+            {success: bool, path: str, layout: str, theme: str, error?: str}
         """
         try:
+            layout = style
+            used_theme = theme
+
+            # 智能版面選擇
+            if style == "auto":
+                renderer = self._get_renderer()
+                if renderer:
+                    analysis = renderer.analyze_content(markdown_content, goal or title)
+                    layout = analysis.get("recommended_layout", "sidebar-nav")
+                    if theme == "default":
+                        used_theme = analysis.get("color_theme", "default")
+                else:
+                    layout = "sidebar-nav"
+            else:
+                # 轉換簡單樣式名稱到版面 ID
+                layout = self.STYLES.get(style, style)
+
             # Markdown 轉 HTML
             html_content = markdown.markdown(
                 markdown_content,
                 extensions=['tables', 'fenced_code', 'toc', 'nl2br', 'meta']
             )
 
-            # 組合完整 HTML
-            full_html = self._build_html(html_content, title, style)
+            # 使用 Renderer 生成 CSS 或使用內建樣式
+            renderer = self._get_renderer()
+            if renderer:
+                full_html = renderer.enhance_html(html_content, layout, used_theme)
+                # 替換標題
+                full_html = full_html.replace("<title>Document</title>", f"<title>{title}</title>")
+            else:
+                # 回退到內建樣式
+                full_html = self._build_html(html_content, title, layout)
 
             # 寫入檔案
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -40,7 +101,9 @@ class WebTool:
 
             return {
                 "success": True,
-                "path": output_path
+                "path": output_path,
+                "layout": layout,
+                "theme": used_theme
             }
 
         except Exception as e:
@@ -51,14 +114,8 @@ class WebTool:
             }
 
     def _build_html(self, content: str, title: str, style: str) -> str:
-        """建構完整的 HTML 頁面"""
-        styles_map = {
-            "article": self._article_css(),
-            "landing": self._landing_css(),
-            "docs": self._docs_css()
-        }
-
-        css = styles_map.get(style, styles_map["article"])
+        """建構完整的 HTML 頁面（回退方案）"""
+        css = self._get_fallback_css(style)
 
         return f'''<!DOCTYPE html>
 <html lang="zh-TW">
@@ -67,512 +124,545 @@ class WebTool:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="{title}">
     <title>{title}</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <style>
-        {css}
+{css}
     </style>
 </head>
 <body>
     <article class="container">
-        {content}
+        <div class="content">
+{content}
+        </div>
     </article>
     <footer>
-        <p>Generated by Monus</p>
+        <p>Generated by <strong>Monus</strong> - Your Autonomous Research Agent</p>
     </footer>
     <script>
         hljs.highlightAll();
+
+        // 程式碼複製功能
+        document.querySelectorAll('pre').forEach(pre => {{
+            const btn = document.createElement('button');
+            btn.className = 'copy-btn';
+            btn.textContent = 'Copy';
+            btn.onclick = () => {{
+                navigator.clipboard.writeText(pre.querySelector('code')?.textContent || pre.textContent);
+                btn.textContent = 'Copied!';
+                setTimeout(() => btn.textContent = 'Copy', 2000);
+            }};
+            pre.style.position = 'relative';
+            pre.appendChild(btn);
+        }});
 
         // 平滑滾動
         document.querySelectorAll('a[href^="#"]').forEach(anchor => {{
             anchor.addEventListener('click', function (e) {{
                 e.preventDefault();
-                document.querySelector(this.getAttribute('href')).scrollIntoView({{
+                document.querySelector(this.getAttribute('href'))?.scrollIntoView({{
                     behavior: 'smooth'
                 }});
             }});
+        }});
+
+        // 滾動進度條
+        const progressBar = document.createElement('div');
+        progressBar.className = 'progress-bar';
+        document.body.prepend(progressBar);
+        window.addEventListener('scroll', () => {{
+            const scrolled = (window.scrollY / (document.body.scrollHeight - window.innerHeight)) * 100;
+            progressBar.style.width = scrolled + '%';
         }});
     </script>
 </body>
 </html>'''
 
-    def _article_css(self) -> str:
-        """文章閱讀風格 CSS"""
-        return """
-            :root {
-                --bg: #fafafa;
-                --text: #333;
-                --accent: #0066cc;
-                --border: #e0e0e0;
-                --code-bg: #f4f4f4;
-            }
-
-            @media (prefers-color-scheme: dark) {
-                :root {
-                    --bg: #1a1a1a;
-                    --text: #e0e0e0;
-                    --accent: #5cacee;
-                    --border: #333;
-                    --code-bg: #2d2d2d;
-                }
-            }
-
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-
-            body {
-                font-family: "Microsoft JhengHei", "PingFang TC", "Noto Sans TC",
-                             system-ui, -apple-system, sans-serif;
-                background: var(--bg);
-                color: var(--text);
-                line-height: 1.8;
-                font-size: 17px;
-            }
-
-            .container {
-                max-width: 800px;
-                margin: 0 auto;
-                padding: 4rem 2rem;
-            }
-
-            h1 {
-                font-size: 2.5rem;
-                margin-bottom: 1rem;
-                border-bottom: 3px solid var(--accent);
-                padding-bottom: 0.5rem;
-                line-height: 1.3;
-            }
-
-            h2 {
-                font-size: 1.8rem;
-                margin: 2.5rem 0 1rem;
-                color: var(--accent);
-                border-bottom: 1px solid var(--border);
-                padding-bottom: 0.3rem;
-            }
-
-            h3 {
-                font-size: 1.4rem;
-                margin: 2rem 0 0.8rem;
-            }
-
-            h4 {
-                font-size: 1.2rem;
-                margin: 1.5rem 0 0.6rem;
-            }
-
-            p {
-                margin: 1em 0;
-                text-align: justify;
-            }
-
-            ul, ol {
-                margin: 1em 0;
-                padding-left: 2em;
-            }
-
-            li {
-                margin: 0.5em 0;
-            }
-
-            pre {
-                background: var(--code-bg);
-                padding: 1.5em;
-                border-radius: 8px;
-                overflow-x: auto;
-                margin: 1.5em 0;
-                border-left: 4px solid var(--accent);
-            }
-
-            code {
-                font-family: "Fira Code", "JetBrains Mono", Consolas, monospace;
-                font-size: 0.9em;
-            }
-
-            :not(pre) > code {
-                background: var(--code-bg);
-                padding: 2px 6px;
-                border-radius: 4px;
-            }
-
-            table {
-                width: 100%;
-                border-collapse: collapse;
-                margin: 1.5em 0;
-                font-size: 0.95em;
-            }
-
-            th, td {
-                border: 1px solid var(--border);
-                padding: 0.8em;
-                text-align: left;
-            }
-
-            th {
-                background: var(--accent);
-                color: white;
-                font-weight: 600;
-            }
-
-            tr:nth-child(even) {
-                background: rgba(0, 0, 0, 0.03);
-            }
-
-            blockquote {
-                border-left: 4px solid var(--accent);
-                margin: 1.5em 0;
-                padding: 1em 1.5em;
-                background: rgba(0, 102, 204, 0.05);
-                border-radius: 0 8px 8px 0;
-            }
-
-            blockquote p {
-                margin: 0;
-            }
-
-            a {
-                color: var(--accent);
-                text-decoration: none;
-            }
-
-            a:hover {
-                text-decoration: underline;
-            }
-
-            img {
-                max-width: 100%;
-                height: auto;
-                border-radius: 8px;
-                margin: 1em 0;
-            }
-
-            hr {
-                border: none;
-                border-top: 1px solid var(--border);
-                margin: 2.5em 0;
-            }
-
-            footer {
-                text-align: center;
-                padding: 2rem;
-                color: #999;
-                font-size: 0.9rem;
-                border-top: 1px solid var(--border);
-                margin-top: 4rem;
-            }
-
-            /* 響應式 */
-            @media (max-width: 600px) {
-                body { font-size: 16px; }
-                .container { padding: 2rem 1rem; }
-                h1 { font-size: 1.8rem; }
-                h2 { font-size: 1.5rem; }
-            }
-
-            /* 列印樣式 */
-            @media print {
-                body { background: white; color: black; }
-                .container { max-width: none; padding: 0; }
-                footer { display: none; }
-                pre { border-left-color: #333; }
-            }
-        """
-
-    def _landing_css(self) -> str:
-        """產品頁面風格 CSS"""
-        return """
-            :root {
-                --bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                --text: #fff;
-                --accent: #ffd700;
-                --card-bg: rgba(255, 255, 255, 0.1);
-            }
-
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-
-            body {
-                font-family: "Microsoft JhengHei", "PingFang TC", system-ui, sans-serif;
-                background: var(--bg);
-                color: var(--text);
-                line-height: 1.8;
-                min-height: 100vh;
-            }
-
-            .container {
-                max-width: 1000px;
-                margin: 0 auto;
-                padding: 6rem 2rem;
-                text-align: center;
-            }
-
-            h1 {
-                font-size: 3.5rem;
-                margin-bottom: 1.5rem;
-                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-            }
-
-            h2 {
-                font-size: 2rem;
-                margin: 3rem 0 1.5rem;
-                color: var(--accent);
-            }
-
-            h3 {
-                font-size: 1.5rem;
-                margin: 2rem 0 1rem;
-            }
-
-            p {
-                font-size: 1.2rem;
-                margin: 1em 0;
-                max-width: 700px;
-                margin-left: auto;
-                margin-right: auto;
-            }
-
-            ul, ol {
-                list-style: none;
-                display: flex;
-                flex-wrap: wrap;
-                justify-content: center;
-                gap: 1.5rem;
-                margin: 2rem 0;
-                padding: 0;
-            }
-
-            li {
-                background: var(--card-bg);
-                padding: 1.5rem 2rem;
-                border-radius: 12px;
-                backdrop-filter: blur(10px);
-                min-width: 250px;
-                text-align: left;
-            }
-
-            pre {
-                background: rgba(0, 0, 0, 0.3);
-                padding: 1.5em;
-                border-radius: 12px;
-                overflow-x: auto;
-                margin: 2em auto;
-                max-width: 800px;
-                text-align: left;
-            }
-
-            code {
-                font-family: "Fira Code", Consolas, monospace;
-            }
-
-            table {
-                border-collapse: collapse;
-                margin: 2em auto;
-                background: var(--card-bg);
-                border-radius: 12px;
-                overflow: hidden;
-            }
-
-            th, td {
-                padding: 1em 1.5em;
-                text-align: left;
-            }
-
-            th {
-                background: rgba(255, 255, 255, 0.2);
-            }
-
-            blockquote {
-                background: var(--card-bg);
-                padding: 2em;
-                border-radius: 12px;
-                margin: 2em auto;
-                max-width: 700px;
-                font-size: 1.3rem;
-                font-style: italic;
-            }
-
-            a {
-                color: var(--accent);
-                text-decoration: none;
-            }
-
-            footer {
-                padding: 2rem;
-                color: rgba(255, 255, 255, 0.7);
-                font-size: 0.9rem;
-            }
-
-            @media (max-width: 600px) {
-                h1 { font-size: 2.2rem; }
-                .container { padding: 3rem 1rem; }
-                ul, ol { flex-direction: column; }
-                li { min-width: auto; }
-            }
-        """
-
-    def _docs_css(self) -> str:
-        """技術文件風格 CSS"""
-        return """
-            :root {
-                --bg: #ffffff;
-                --sidebar-bg: #f8f9fa;
-                --text: #24292e;
-                --accent: #0366d6;
-                --border: #e1e4e8;
-                --code-bg: #f6f8fa;
-            }
-
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-
-            body {
-                font-family: -apple-system, BlinkMacSystemFont, "Microsoft JhengHei",
-                             "Segoe UI", Helvetica, Arial, sans-serif;
-                background: var(--bg);
-                color: var(--text);
-                line-height: 1.7;
-                font-size: 16px;
-            }
-
-            .container {
-                max-width: 900px;
-                margin: 0 auto;
-                padding: 3rem 2rem;
-            }
-
-            h1 {
-                font-size: 2.2rem;
-                margin-bottom: 1rem;
-                padding-bottom: 0.5rem;
-                border-bottom: 1px solid var(--border);
-            }
-
-            h2 {
-                font-size: 1.6rem;
-                margin: 2rem 0 1rem;
-                padding-bottom: 0.3rem;
-                border-bottom: 1px solid var(--border);
-            }
-
-            h3 {
-                font-size: 1.3rem;
-                margin: 1.5rem 0 0.8rem;
-            }
-
-            h4 {
-                font-size: 1.1rem;
-                margin: 1.2rem 0 0.6rem;
-            }
-
-            p { margin: 1em 0; }
-
-            ul, ol {
-                margin: 1em 0;
-                padding-left: 2em;
-            }
-
-            li { margin: 0.4em 0; }
-
-            pre {
-                background: var(--code-bg);
-                padding: 1em;
-                border-radius: 6px;
-                overflow-x: auto;
-                margin: 1em 0;
-                border: 1px solid var(--border);
-                font-size: 0.9em;
-            }
-
-            code {
-                font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-            }
-
-            :not(pre) > code {
-                background: var(--code-bg);
-                padding: 0.2em 0.4em;
-                border-radius: 3px;
-                font-size: 0.9em;
-            }
-
-            table {
-                width: 100%;
-                border-collapse: collapse;
-                margin: 1em 0;
-                font-size: 0.95em;
-            }
-
-            th, td {
-                border: 1px solid var(--border);
-                padding: 0.6em 1em;
-                text-align: left;
-            }
-
-            th {
-                background: var(--code-bg);
-                font-weight: 600;
-            }
-
-            blockquote {
-                border-left: 4px solid var(--accent);
-                padding: 0.5em 1em;
-                margin: 1em 0;
-                background: var(--code-bg);
-                color: #6a737d;
-            }
-
-            blockquote p { margin: 0; }
-
-            a {
-                color: var(--accent);
-                text-decoration: none;
-            }
-
-            a:hover { text-decoration: underline; }
-
-            hr {
-                border: none;
-                border-top: 1px solid var(--border);
-                margin: 2em 0;
-            }
-
-            img {
-                max-width: 100%;
-                border: 1px solid var(--border);
-                border-radius: 6px;
-            }
-
-            /* 提示框 */
-            blockquote:has(strong:first-child) {
-                border-left-color: #28a745;
-                background: #f0fff4;
-            }
-
-            footer {
-                text-align: center;
-                padding: 2rem;
-                color: #6a737d;
-                font-size: 0.85rem;
-                border-top: 1px solid var(--border);
-                margin-top: 3rem;
-            }
-
-            @media (max-width: 600px) {
-                .container { padding: 1.5rem 1rem; }
-                h1 { font-size: 1.8rem; }
-            }
-
-            @media print {
-                .container { max-width: none; }
-                footer { display: none; }
-            }
-        """
+    def _get_fallback_css(self, style: str) -> str:
+        """取得回退 CSS 樣式"""
+        # 基礎變數
+        base_vars = """
+:root {
+    --primary: #00d4aa;
+    --secondary: #7c3aed;
+    --bg: #ffffff;
+    --bg-secondary: #f8fafc;
+    --text: #1e293b;
+    --text-secondary: #64748b;
+    --accent: #f59e0b;
+    --border: #e2e8f0;
+    --code-bg: #1e293b;
+
+    --font-sans: 'Inter', 'Noto Sans TC', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-6: 1.5rem;
+    --space-8: 2rem;
+    --space-12: 3rem;
+    --space-16: 4rem;
+
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
+    --shadow-lg: 0 10px 15px rgba(0,0,0,0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #0f172a;
+        --bg-secondary: #1e293b;
+        --text: #f8fafc;
+        --text-secondary: #94a3b8;
+        --border: #334155;
+    }
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.8;
+    font-size: 17px;
+}
+
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: var(--space-12) var(--space-6);
+}
+
+.content {
+    min-height: 60vh;
+}
+
+h1, h2, h3, h4 {
+    color: var(--text);
+    line-height: 1.3;
+}
+
+h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: var(--space-6);
+    padding-bottom: var(--space-4);
+    border-bottom: 3px solid var(--primary);
+}
+
+h2 {
+    font-size: 1.875rem;
+    font-weight: 600;
+    margin: var(--space-12) 0 var(--space-4);
+    color: var(--primary);
+}
+
+h3 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: var(--space-8) 0 var(--space-3);
+}
+
+h4 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: var(--space-6) 0 var(--space-2);
+}
+
+p {
+    margin: var(--space-4) 0;
+    text-align: justify;
+}
+
+a {
+    color: var(--primary);
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+a:hover {
+    color: var(--secondary);
+    text-decoration: underline;
+}
+
+ul, ol {
+    margin: var(--space-4) 0;
+    padding-left: var(--space-8);
+}
+
+li {
+    margin: var(--space-2) 0;
+}
+
+pre {
+    background: var(--code-bg);
+    color: #e2e8f0;
+    padding: var(--space-4);
+    border-radius: var(--radius-md);
+    overflow-x: auto;
+    margin: var(--space-6) 0;
+    font-size: 0.9em;
+    border-left: 4px solid var(--primary);
+    position: relative;
+}
+
+code {
+    font-family: var(--font-mono);
+}
+
+:not(pre) > code {
+    background: var(--bg-secondary);
+    padding: 0.2em 0.5em;
+    border-radius: var(--radius-sm);
+    font-size: 0.9em;
+    color: var(--primary);
+}
+
+.copy-btn {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    background: rgba(255,255,255,0.1);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 0.75rem;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+pre:hover .copy-btn {
+    opacity: 1;
+}
+
+.copy-btn:hover {
+    background: rgba(255,255,255,0.2);
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: var(--space-6) 0;
+    font-size: 0.95em;
+    background: var(--bg);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-md);
+}
+
+th, td {
+    padding: var(--space-3) var(--space-4);
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+th {
+    background: var(--primary);
+    color: white;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.85em;
+    letter-spacing: 0.05em;
+}
+
+tr:hover {
+    background: var(--bg-secondary);
+}
+
+blockquote {
+    border-left: 4px solid var(--primary);
+    margin: var(--space-6) 0;
+    padding: var(--space-4) var(--space-6);
+    background: var(--bg-secondary);
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    font-style: italic;
+}
+
+blockquote p {
+    margin: 0;
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+    margin: var(--space-4) 0;
+    box-shadow: var(--shadow-md);
+}
+
+hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: var(--space-12) 0;
+}
+
+.progress-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--primary), var(--secondary));
+    z-index: 1000;
+    transition: width 0.1s;
+}
+
+footer {
+    text-align: center;
+    padding: var(--space-8);
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    border-top: 1px solid var(--border);
+    margin-top: var(--space-12);
+}
+
+footer strong {
+    color: var(--primary);
+}
+
+/* 響應式 */
+@media (max-width: 640px) {
+    body { font-size: 16px; }
+    .container { padding: var(--space-6) var(--space-4); }
+    h1 { font-size: 1.875rem; }
+    h2 { font-size: 1.5rem; }
+    h3 { font-size: 1.25rem; }
+}
+
+/* 列印樣式 */
+@media print {
+    body { background: white; color: black; }
+    .container { max-width: none; padding: 0; }
+    footer, .progress-bar, .copy-btn { display: none; }
+    pre { border-left-color: #333; }
+    a { color: #333; }
+}
+"""
+
+        # 根據樣式添加特定 CSS
+        style_specific = self._get_style_specific_css(style)
+
+        return base_vars + "\n" + style_specific
+
+    def _get_style_specific_css(self, style: str) -> str:
+        """取得樣式特定的 CSS"""
+
+        styles = {
+            "step-by-step": """
+/* Step-by-Step 教學樣式 */
+.content {
+    counter-reset: step;
+}
+
+.content h2 {
+    counter-increment: step;
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+}
+
+.content h2::before {
+    content: counter(step);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    background: var(--primary);
+    color: white;
+    border-radius: 50%;
+    font-size: 1.25rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+""",
+            "landing": """
+/* Landing Page 樣式 */
+body {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+    color: white;
+}
+
+.container {
+    max-width: 1000px;
+    text-align: center;
+    padding-top: var(--space-16);
+}
+
+h1 {
+    font-size: 3.5rem;
+    border-bottom: none;
+    color: white;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+}
+
+h2 {
+    color: rgba(255,255,255,0.9);
+    font-size: 2rem;
+}
+
+p {
+    font-size: 1.2rem;
+    text-align: center;
+    max-width: 700px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+ul, ol {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-6);
+    padding: 0;
+}
+
+li {
+    background: rgba(255,255,255,0.1);
+    padding: var(--space-6);
+    border-radius: var(--radius-lg);
+    backdrop-filter: blur(10px);
+    min-width: 250px;
+    text-align: left;
+}
+
+pre {
+    background: rgba(0,0,0,0.3);
+    border-left: none;
+}
+
+blockquote {
+    background: rgba(255,255,255,0.1);
+    border-left-color: white;
+}
+
+footer {
+    border-top: none;
+    color: rgba(255,255,255,0.7);
+}
+
+a {
+    color: #ffd700;
+}
+
+@media (max-width: 640px) {
+    h1 { font-size: 2.5rem; }
+    ul, ol { flex-direction: column; }
+    li { min-width: auto; }
+}
+""",
+            "docs": """
+/* Documentation 樣式 */
+.container {
+    max-width: 900px;
+}
+
+h1 {
+    border-bottom: 1px solid var(--border);
+}
+
+h2 {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: var(--space-2);
+}
+
+pre {
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--primary);
+}
+
+:not(pre) > code {
+    background: rgba(0,0,0,0.05);
+    color: #e83e8c;
+}
+
+/* API 區塊樣式 */
+h3 code {
+    background: var(--primary);
+    color: white;
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: 0.9em;
+}
+""",
+            "table-centric": """
+/* Table-Centric 樣式 */
+table {
+    font-size: 1rem;
+}
+
+th {
+    font-size: 0.9rem;
+}
+
+tr:nth-child(even) {
+    background: var(--bg-secondary);
+}
+
+.container {
+    max-width: 1000px;
+}
+""",
+            "cards": """
+/* Cards 樣式 */
+.container {
+    max-width: 1200px;
+}
+
+ul {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: var(--space-6);
+    padding: 0;
+}
+
+li {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-6);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+li:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+}
+"""
+        }
+
+        return styles.get(style, "")
 
 
 # 同步包裝器
-def generate_web_sync(markdown_content: str, output_path: str,
-                      title: str = "Document", style: str = "article") -> dict:
+def generate_web_sync(
+    markdown_content: str,
+    output_path: str,
+    title: str = "Document",
+    style: str = "auto",
+    theme: str = "default"
+) -> dict:
     """同步版本的網頁生成"""
     import asyncio
 
     async def _run():
         tool = WebTool()
-        return await tool.generate(markdown_content, output_path, title, style)
+        return await tool.generate(markdown_content, output_path, title, style, theme)
 
     return asyncio.run(_run())

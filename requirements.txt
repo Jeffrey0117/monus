@@ -5,3 +5,7 @@ readability-lxml>=0.8.1
 lxml>=5.0.0
 aiohttp>=3.9.0
 python-dotenv>=1.0.0
+rich>=13.0.0
+openai>=1.0.0
+markdown>=3.5.0
+duckduckgo-search>=4.0.0

@@ -30,33 +30,39 @@ from agent.loop import AgentLoop
 from agent.verifier import Verifier
 from agent.memory import Memory
 
-
-def print_banner():
-    """印出 Monus 標誌"""
-    banner = """
+# 嘗試使用 Rich UI，如果沒有則使用基本輸出
+try:
+    from ui import (
+        print_banner, print_config, print_agents, MonusUI,
+        console, success, error, info
+    )
+    USE_RICH = True
+except ImportError:
+    USE_RICH = False
+    def print_banner():
+        print("""
     +==========================================+
-    |                                          |
-    |   M   M  OOO  N   N U   U  SSS           |
-    |   MM MM O   O NN  N U   U S              |
-    |   M M M O   O N N N U   U  SSS           |
-    |   M   M O   O N  NN U   U     S          |
-    |   M   M  OOO  N   N  UUU  SSSS           |
-    |                                          |
+    |   M O N U S                              |
     |   Your Autonomous Research Agent         |
-    |   Powered by DeepSeek + 5 Agent System   |
     +==========================================+
-    """
-    print(banner)
+        """)
 
 
 async def run_task(goal: str, model: str = "deepseek-chat",
                    output_format: str = "pdf", theme: str = "default"):
     """執行研究任務"""
-    print_banner()
-    print(f"\n[Goal] {goal}")
-    print(f"[Model] {model}")
-    print(f"[Output] {output_format}" + (f" (theme: {theme})" if output_format in ["slides", "all"] else ""))
-    print("=" * 50)
+
+    if USE_RICH:
+        print_banner()
+        print_config(goal, model, output_format, theme)
+        print_agents()
+        ui = MonusUI()
+    else:
+        print_banner()
+        print(f"Goal: {goal}")
+        print(f"Model: {model}")
+        print(f"Output: {output_format}")
+        ui = None
 
     # 初始化 5 個 Agent
     memory = Memory(runs_dir="runs")
@@ -65,13 +71,6 @@ async def run_task(goal: str, model: str = "deepseek-chat",
     evaluator = Evaluator(model=model)
     verifier = Verifier(min_sources=5, min_word_count=800)
 
-    print("\n[Agents initialized]")
-    print("   - Planner: Task decomposition & planning")
-    print("   - Reasoner: Thought generation & conflict resolution")
-    print("   - Evaluator: Result evaluation & quality check")
-    print("   - Verifier: Rule-based verification")
-    print("   - Renderer: PDF / Slides / Web output")
-
     # 建立並執行 Agent Loop
     agent = AgentLoop(
         memory=memory,
@@ -79,39 +78,44 @@ async def run_task(goal: str, model: str = "deepseek-chat",
         reasoner=reasoner,
         evaluator=evaluator,
         verifier=verifier,
-        max_iterations=20
+        max_iterations=20,
+        ui=ui  # 傳入 UI
     )
 
     result = await agent.run(goal, output_format=output_format, theme=theme)
 
-    # 輸出結果
-    print("\n" + "=" * 50)
-    if result["success"]:
-        print("[OK] Task completed successfully!")
+    # 顯示結果
+    if USE_RICH:
+        ui.show_outputs(result.get("outputs", {}))
+        ui.show_verification(result.get("verification", {}))
+
+        # 顯示建議
+        final_eval = result.get("final_evaluation", {})
+        if final_eval.get("suggestions"):
+            ui.show_suggestions(final_eval["suggestions"])
+
+        # 顯示最終結果
+        ui.show_final_result(
+            result["success"],
+            result.get("run_id", "N/A"),
+            final_eval.get("quality_score")
+        )
     else:
-        print("[FAIL] Task completed with issues")
+        # 基本輸出
+        print("\n" + "=" * 50)
+        if result["success"]:
+            print("[OK] Task completed successfully!")
+        else:
+            print("[FAIL] Task completed with issues")
 
-    print(f"\n[Run ID] {result.get('run_id', 'N/A')}")
-    print(f"[Report] {result.get('report_path', 'N/A')}")
+        print(f"\n[Run ID] {result.get('run_id', 'N/A')}")
+        print(f"[Report] {result.get('report_path', 'N/A')}")
 
-    # 顯示輸出檔案
-    if "outputs" in result:
-        print("\n[Output Files]")
-        for fmt, info in result["outputs"].items():
-            if info and info.get("success"):
-                print(f"   [{fmt.upper()}] {info.get('path', 'N/A')}")
-
-    # 顯示驗證結果
-    if "verification" in result:
-        print("\n[Verification Results]")
-        for r in result["verification"]["results"]:
-            status = "[PASS]" if r["passed"] else "[FAIL]"
-            print(f"   {status} {r['rule']}: {r['message']}")
-
-    # 顯示最終評估
-    if "final_evaluation" in result:
-        eval_result = result["final_evaluation"]
-        print(f"\n[Quality Score] {eval_result.get('quality_score', 'N/A')}")
+        if "outputs" in result:
+            print("\n[Output Files]")
+            for fmt, info in result["outputs"].items():
+                if info and info.get("success"):
+                    print(f"   [{fmt.upper()}] {info.get('path', 'N/A')}")
 
     return result
 
@@ -120,59 +124,154 @@ def list_runs():
     """列出所有執行記錄"""
     runs_dir = Path("runs")
     if not runs_dir.exists():
-        print("No runs found.")
+        if USE_RICH:
+            info("No runs found.")
+        else:
+            print("No runs found.")
         return
 
     runs = sorted(runs_dir.iterdir(), reverse=True)
     if not runs:
-        print("No runs found.")
+        if USE_RICH:
+            info("No runs found.")
+        else:
+            print("No runs found.")
         return
 
-    print("\n[Recent Runs]")
-    print("-" * 60)
-    for run in runs[:10]:
-        task_file = run / "task.json"
-        if task_file.exists():
-            import json
-            task = json.loads(task_file.read_text(encoding="utf-8"))
-            status_map = {
-                "completed": "[OK]",
-                "running": "[RUN]",
-                "failed": "[FAIL]",
-                "pending": "[WAIT]"
-            }
-            status = status_map.get(task["status"], "[?]")
-            print(f"{status} {run.name}")
-            print(f"   Goal: {task['goal'][:50]}...")
-        print()
+    if USE_RICH:
+        from rich.table import Table
+        from rich.box import ROUNDED
+        import json
+
+        table = Table(title="Recent Runs", box=ROUNDED)
+        table.add_column("Status", justify="center", width=6)
+        table.add_column("Run ID", style="cyan", width=24, no_wrap=True)
+        table.add_column("Goal", max_width=40, no_wrap=True, overflow="ellipsis")
+        table.add_column("Files", justify="center", width=18)
+
+        for run in runs[:10]:
+            task_file = run / "task.json"
+            if task_file.exists():
+                task = json.loads(task_file.read_text(encoding="utf-8"))
+                status_icons = {
+                    "completed": "[green]✓[/]",
+                    "running": "[yellow]⟳[/]",
+                    "failed": "[red]✗[/]",
+                    "pending": "[dim]○[/]"
+                }
+                status = status_icons.get(task["status"], "?")
+                goal_text = task['goal'][:40] + "..." if len(task['goal']) > 40 else task['goal']
+
+                # 計算輸出檔案數
+                files = []
+                if (run / "report.pdf").exists(): files.append("PDF")
+                if (run / "slides.html").exists(): files.append("Slides")
+                if (run / "index.html").exists(): files.append("Web")
+                files_str = ", ".join(files) if files else "-"
+
+                table.add_row(status, run.name, goal_text, files_str)
+
+        console.print(table)
+    else:
+        print("\n[Recent Runs]")
+        print("-" * 60)
+        for run in runs[:10]:
+            task_file = run / "task.json"
+            if task_file.exists():
+                import json
+                task = json.loads(task_file.read_text(encoding="utf-8"))
+                status_map = {
+                    "completed": "[OK]",
+                    "running": "[RUN]",
+                    "failed": "[FAIL]",
+                    "pending": "[WAIT]"
+                }
+                status = status_map.get(task["status"], "[?]")
+                print(f"{status} {run.name}")
+                print(f"   Goal: {task['goal'][:50]}...")
+            print()
 
 
 def show_run(run_id: str):
     """顯示特定執行記錄"""
     run_dir = Path("runs") / run_id
     if not run_dir.exists():
-        print(f"Run not found: {run_id}")
+        if USE_RICH:
+            error(f"Run not found: {run_id}")
+        else:
+            print(f"Run not found: {run_id}")
         return
 
     task_file = run_dir / "task.json"
     report_file = run_dir / "report.md"
 
-    if task_file.exists():
+    if USE_RICH:
+        from rich.panel import Panel
+        from rich.table import Table
+        from rich.box import ROUNDED
+        from rich.markdown import Markdown
         import json
-        task = json.loads(task_file.read_text(encoding="utf-8"))
-        print(f"\n[Task] {task['goal']}")
-        print(f"[Status] {task['status']}")
-        print(f"\nSteps ({len(task['steps'])}):")
-        for step in task["steps"]:
-            status_map = {"done": "[OK]", "pending": "[--]", "running": "[>>]", "failed": "[XX]"}
-            status = status_map.get(step["status"], "[?]")
-            print(f"   {status} [{step['id']}] {step['title']}")
 
-    if report_file.exists():
-        print(f"\n[Report saved at] {report_file}")
-        print("\nReport Preview (first 500 chars):")
-        print("-" * 40)
-        print(report_file.read_text(encoding="utf-8")[:500])
+        if task_file.exists():
+            task = json.loads(task_file.read_text(encoding="utf-8"))
+
+            # 任務資訊
+            console.print(Panel(
+                f"[bold]Goal:[/] {task['goal']}\n"
+                f"[bold]Status:[/] {task['status']}\n"
+                f"[bold]Created:[/] {task.get('created_at', 'N/A')}",
+                title=f"[bold cyan]Run: {run_id}[/]",
+                border_style="cyan"
+            ))
+
+            # 步驟表格
+            table = Table(title="Steps", box=ROUNDED)
+            table.add_column("ID", style="dim")
+            table.add_column("Status", justify="center")
+            table.add_column("Title")
+            table.add_column("Tool", style="cyan")
+
+            for step in task["steps"][:10]:  # 只顯示前 10 個
+                status_icons = {"done": "[green]✓[/]", "pending": "[dim]○[/]",
+                               "running": "[yellow]⟳[/]", "failed": "[red]✗[/]"}
+                status = status_icons.get(step["status"], "?")
+                table.add_row(str(step['id']), status, step['title'][:40], step.get('tool', '-'))
+
+            console.print(table)
+
+            # 輸出檔案
+            files = []
+            if (run_dir / "report.pdf").exists(): files.append(("PDF", "report.pdf"))
+            if (run_dir / "slides.html").exists(): files.append(("Slides", "slides.html"))
+            if (run_dir / "index.html").exists(): files.append(("Web", "index.html"))
+
+            if files:
+                console.print("\n[bold]Output Files:[/]")
+                for fmt, name in files:
+                    console.print(f"  📄 [{fmt}] {run_dir / name}")
+
+        if report_file.exists():
+            console.print("\n[bold]Report Preview:[/]")
+            preview = report_file.read_text(encoding="utf-8")[:1000]
+            console.print(Panel(Markdown(preview), border_style="dim"))
+
+    else:
+        if task_file.exists():
+            import json
+            task = json.loads(task_file.read_text(encoding="utf-8"))
+            print(f"\n[Task] {task['goal']}")
+            print(f"[Status] {task['status']}")
+            print(f"\nSteps ({len(task['steps'])}):")
+            for step in task["steps"]:
+                status_map = {"done": "[OK]", "pending": "[--]", "running": "[>>]", "failed": "[XX]"}
+                status = status_map.get(step["status"], "[?]")
+                print(f"   {status} [{step['id']}] {step['title']}")
+
+        if report_file.exists():
+            print(f"\n[Report saved at] {report_file}")
+            print("\nReport Preview (first 500 chars):")
+            print("-" * 40)
+            print(report_file.read_text(encoding="utf-8")[:500])
 
 
 def main():
